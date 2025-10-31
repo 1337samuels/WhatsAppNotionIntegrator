@@ -41,8 +41,52 @@ def is_archive_chat(chat_name):
 def is_group_chat(driver):
     """Check if the currently opened chat is a group by looking at the subtitle under chat name"""
     try:
-        # Look for the header which contains chat name and subtitle
-        header = driver.find_element(By.TAG_NAME, 'header')
+        # Find the CORRECT header - the one in the main chat area, not sidebar
+        # WhatsApp has multiple headers, we need the one in the conversation panel
+
+        # Try to find the conversation/chat panel first
+        header = None
+
+        # Strategy 1: Look for header within the main conversation area
+        try:
+            # Common selectors for the main chat panel
+            chat_panel_selectors = [
+                'div[data-testid="conversation-panel-wrapper"]',
+                'div[data-testid="conversation-header"]',
+                'div#main',
+                'div.main',
+            ]
+
+            for selector in chat_panel_selectors:
+                try:
+                    chat_panel = driver.find_element(By.CSS_SELECTOR, selector)
+                    header = chat_panel.find_element(By.TAG_NAME, 'header')
+                    print(f"  Found header using panel selector: {selector}")
+                    break
+                except:
+                    continue
+        except:
+            pass
+
+        # Strategy 2: If we didn't find it in a panel, get all headers and use the last one
+        # (sidebar headers come first, chat header comes last)
+        if not header:
+            try:
+                headers = driver.find_elements(By.TAG_NAME, 'header')
+                print(f"  Found {len(headers)} header elements total")
+                if len(headers) >= 2:
+                    # Use the second header (first is usually sidebar)
+                    header = headers[1]
+                    print(f"  Using header index 1 (second header)")
+                elif len(headers) == 1:
+                    header = headers[0]
+                    print(f"  Only one header found, using it")
+            except:
+                pass
+
+        if not header:
+            print("  ERROR: Could not find any header element")
+            return False
 
         # Debug: Print all text in header
         header_full_text = header.text
