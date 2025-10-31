@@ -44,48 +44,76 @@ def is_group_chat(driver):
         # Look for the header which contains chat name and subtitle
         header = driver.find_element(By.TAG_NAME, 'header')
 
-        # Try to find the subtitle/description element under the chat name
-        # For groups: Shows participant names (e.g., "Alice, Bob, Carol")
-        # For contacts: Shows "click here for contact info" or similar
+        # Debug: Print all text in header
+        header_full_text = header.text
+        print(f"  Header full text:\n{header_full_text}")
 
-        # Try multiple selectors for the subtitle
-        subtitle_selectors = [
-            'span[title]',  # Often has title attribute with participant names
-            'div[class*="subtitle"]',
-            'span[class*="subtitle"]',
-            'div._ao3e',  # Common WhatsApp class for subtitle
-            'span._ao3e',
-        ]
+        # Split by newlines to get separate lines
+        lines = [line.strip() for line in header_full_text.split('\n') if line.strip()]
+        print(f"  Header lines: {lines}")
+
+        # Usually the structure is:
+        # Line 0: Chat name
+        # Line 1: Subtitle (participant names for groups, "click here..." for contacts)
 
         subtitle_text = ""
-        for selector in subtitle_selectors:
+
+        if len(lines) >= 2:
+            # The second line is typically the subtitle
+            subtitle_text = lines[1].lower()
+            print(f"  Subtitle text (from lines): '{subtitle_text}'")
+        else:
+            print(f"  Only found {len(lines)} line(s) in header, trying other methods...")
+
+            # Try to find specific elements
             try:
-                subtitle_elements = header.find_elements(By.CSS_SELECTOR, selector)
-                for elem in subtitle_elements:
-                    text = elem.text.strip()
-                    if text and len(text) > 0:
+                # Look for all span elements and get their text
+                spans = header.find_elements(By.TAG_NAME, 'span')
+                print(f"  Found {len(spans)} span elements in header")
+
+                # Try to find the subtitle by looking for spans that aren't the title
+                span_texts = []
+                for i, span in enumerate(spans):
+                    text = span.text.strip()
+                    if text:
+                        span_texts.append(text)
+                        print(f"    Span {i}: '{text}'")
+
+                # Look for a span that looks like a subtitle (not the chat name)
+                # The subtitle is usually shorter and contains specific patterns
+                chat_name = lines[0] if lines else ""
+                for text in span_texts:
+                    if text != chat_name and len(text) > 0:
                         subtitle_text = text.lower()
+                        print(f"  Found potential subtitle: '{subtitle_text}'")
                         break
-                if subtitle_text:
-                    break
-            except:
-                continue
+
+            except Exception as e:
+                print(f"  Error getting spans: {e}")
 
         if not subtitle_text:
-            # Try getting all spans in header and look for the second one (usually subtitle)
+            print(f"  Could not find subtitle text")
+            # Try one more method - get all divs in header
             try:
-                spans = header.find_elements(By.TAG_NAME, 'span')
-                if len(spans) >= 2:
-                    subtitle_text = spans[1].text.strip().lower()
-            except:
-                pass
+                divs = header.find_elements(By.TAG_NAME, 'div')
+                print(f"  Trying {len(divs)} div elements...")
+                for i, div in enumerate(divs):
+                    text = div.text.strip()
+                    if text and '\n' not in text and len(text) > 5 and len(text) < 100:
+                        # This might be a subtitle
+                        if i > 0:  # Not the first div (which is likely the title)
+                            subtitle_text = text.lower()
+                            print(f"    Found subtitle from div {i}: '{subtitle_text}'")
+                            break
+            except Exception as e:
+                print(f"  Error getting divs: {e}")
 
-        print(f"  Subtitle text: '{subtitle_text}'")
+        print(f"  Final subtitle text: '{subtitle_text}'")
 
         # Individual contacts typically say "click here for contact info" or "tap here for contact info"
         contact_keywords = ['click here for contact info', 'tap here for contact info',
                            'click for contact info', 'tap for contact info',
-                           'select for contact info']
+                           'select for contact info', 'click here', 'tap here']
 
         if any(keyword in subtitle_text for keyword in contact_keywords):
             print(f"  → Detected as INDIVIDUAL (contact info message)")
@@ -103,13 +131,13 @@ def is_group_chat(driver):
             return True
 
         # Check for participant count indicators
-        if any(keyword in subtitle_text for keyword in ['participants', 'members']):
+        if any(keyword in subtitle_text for keyword in ['participants', 'members', 'participant', 'member']):
             print(f"  → Detected as GROUP (participant/member count)")
             return True
 
         # If we have a subtitle that's not a contact info message and has some length,
         # it's likely a group showing participant names
-        if subtitle_text and len(subtitle_text) > 3 and not any(keyword in subtitle_text for keyword in contact_keywords):
+        if subtitle_text and len(subtitle_text) > 5 and not any(keyword in subtitle_text for keyword in contact_keywords):
             print(f"  → Detected as GROUP (has subtitle, not contact info)")
             return True
 
@@ -119,6 +147,8 @@ def is_group_chat(driver):
 
     except Exception as e:
         print(f"  Error checking if group: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
