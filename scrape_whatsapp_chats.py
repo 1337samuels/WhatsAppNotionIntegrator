@@ -157,7 +157,10 @@ def is_group_chat(driver):
         # Individual contacts typically say "click here for contact info" or "tap here for contact info"
         contact_keywords = ['click here for contact info', 'tap here for contact info',
                            'click for contact info', 'tap for contact info',
-                           'select for contact info', 'click here', 'tap here']
+                           'select for contact info']
+        group_keywords = ['click here for group info', 'tap here for group info',
+                           'click for group info', 'tap for group info',
+                           'select for group info', ',']
 
         if any(keyword in subtitle_text for keyword in contact_keywords):
             print(f"  → Detected as INDIVIDUAL (contact info message)")
@@ -165,7 +168,7 @@ def is_group_chat(driver):
 
         # Groups show participant names (comma-separated) or participant count
         # If subtitle contains commas, it's likely a list of participants
-        if ',' in subtitle_text:
+        if any(keyword in subtitle_text for keyword in group_keywords):
             print(f"  → Detected as GROUP (participant list with commas)")
             return True
 
