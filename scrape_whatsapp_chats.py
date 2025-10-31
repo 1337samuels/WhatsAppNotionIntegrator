@@ -200,231 +200,100 @@ def is_group_chat(driver):
 
 
 def get_group_participants(driver):
-    """Extract participant names and phone numbers from group info"""
+    """Extract participant names from the header's title attribute"""
     participants = []
 
     try:
-        print("  Opening group info panel...")
+        print("  Extracting participants from header...")
 
-        # Click on the header to open group info
-        wait = WebDriverWait(driver, WAIT_TIMEOUT)
-        header = wait.until(EC.presence_of_element_located((By.TAG_NAME, 'header')))
+        # Find the CORRECT header - the one in the main chat area
+        header = None
 
-        # Find and click the chat title or header area
+        # Strategy 1: Look for header within the main conversation area
         try:
-            # Try to find the clickable area in header (usually the chat name area)
-            clickable_header = header.find_element(By.CSS_SELECTOR, 'div[role="button"]')
-            clickable_header.click()
-            print("  Clicked header button")
-        except:
-            # Fallback: click the header itself
-            header.click()
-            print("  Clicked header")
+            chat_panel_selectors = [
+                'div[data-testid="conversation-panel-wrapper"]',
+                'div[data-testid="conversation-header"]',
+                'div#main',
+                'div.main',
+            ]
 
-        sleep(3)  # Wait for panel to open
-
-        # Now we should have the group info panel open
-        # Look for participant section
-        print("  Looking for participants section...")
-
-        # Try to find the participants section heading/link
-        participant_section_found = False
-        participant_section_selectors = [
-            "//div[contains(text(), 'participant')]",  # English
-            "//div[contains(text(), 'Participant')]",
-            "//span[contains(text(), 'participant')]",
-            "//span[contains(text(), 'Participant')]",
-            "//*[contains(text(), 'member')]",
-            "//*[contains(text(), 'Member')]",
-        ]
-
-        for selector in participant_section_selectors:
-            try:
-                participant_heading = driver.find_element(By.XPATH, selector)
-                if participant_heading:
-                    print(f"  Found participant section: {participant_heading.text}")
-                    # Try to click it if it's clickable (some versions require clicking to expand)
-                    try:
-                        participant_heading.click()
-                        sleep(2)
-                        print("  Clicked participant section")
-                    except:
-                        pass
-                    participant_section_found = True
-                    break
-            except:
-                continue
-
-        # Now extract participants - try multiple strategies
-        print("  Extracting participant data...")
-
-        # Strategy 1: Look for elements with contact-card or list item patterns
-        contact_selectors = [
-            'div[role="listitem"]',
-            'div[data-testid*="cell"]',
-            'div[data-testid*="contact"]',
-            'div._1wjpf',  # Common WhatsApp contact list class
-        ]
-
-        participant_elements = []
-        for selector in contact_selectors:
-            try:
-                elements = driver.find_elements(By.CSS_SELECTOR, selector)
-                if elements and len(elements) > 2:  # More than just a couple elements
-                    print(f"  Found {len(elements)} potential participant elements with selector: {selector}")
-                    participant_elements = elements
-                    break
-            except:
-                continue
-
-        # Strategy 2: If we didn't find elements, look for a scrollable container with contacts
-        if not participant_elements:
-            print("  Trying alternative participant extraction...")
-            try:
-                # Look for sections that might contain participants
-                sections = driver.find_elements(By.TAG_NAME, 'section')
-                for section in sections:
-                    section_text = section.text.lower()
-                    if 'participant' in section_text or 'member' in section_text:
-                        # This section likely contains participants
-                        # Get all span elements with dir="auto" which usually contain names
-                        name_spans = section.find_elements(By.CSS_SELECTOR, 'span[dir="auto"]')
-                        for span in name_spans:
-                            name = span.text.strip()
-                            # Filter out non-name elements
-                            if (name and len(name) > 0 and
-                                name.lower() not in ['participants', 'group info', 'members', 'contacts',
-                                                       'you', 'admin', 'group', 'description', 'settings']):
-                                # Check if this is actually a participant name (not a UI label)
-                                if not any(keyword in name.lower() for keyword in ['click', 'tap', 'add', 'search', 'mute']):
-                                    participants.append({"name": name, "phone": "N/A"})
-                                    print(f"    - Found: {name}")
-                        break
-            except Exception as e:
-                print(f"  Error in section-based extraction: {e}")
-
-        # Process participant_elements if we found them
-        if participant_elements and not participants:
-            print(f"  Processing {len(participant_elements)} participant elements...")
-            for elem in participant_elements:
+            for selector in chat_panel_selectors:
                 try:
-                    # Get all text from spans with dir="auto" (common for names in WhatsApp)
-                    name_spans = elem.find_elements(By.CSS_SELECTOR, 'span[dir="auto"]')
-
-                    if not name_spans:
-                        # Try just getting span text
-                        name_spans = elem.find_elements(By.TAG_NAME, 'span')
-
-                    for span in name_spans:
-                        name = span.text.strip()
-                        if name and len(name) > 1:
-                            # This looks like a name, try to get phone number too
-                            phone = "N/A"
-
-                            # Look for phone number in sibling or parent elements
-                            try:
-                                # Phone numbers might be in a subtitle or secondary text
-                                parent = span.find_element(By.XPATH, '..')
-                                all_spans = parent.find_elements(By.TAG_NAME, 'span')
-                                for s in all_spans:
-                                    text = s.text.strip()
-                                    # Check if this looks like a phone number
-                                    if text and (text.startswith('+') or text.replace('-', '').replace(' ', '').isdigit()):
-                                        phone = text
-                                        break
-                            except:
-                                pass
-
-                            # Avoid duplicates
-                            if not any(p['name'] == name for p in participants):
-                                participants.append({"name": name, "phone": phone})
-                                print(f"    - Found: {name} ({phone})")
-                            break  # Only take first name from this element
-
-                except Exception as e:
-                    print(f"    Error extracting from element: {e}")
+                    chat_panel = driver.find_element(By.CSS_SELECTOR, selector)
+                    header = chat_panel.find_element(By.TAG_NAME, 'header')
+                    break
+                except:
                     continue
+        except:
+            pass
 
-        # If still no participants, try one more aggressive approach
+        # Strategy 2: Get all headers and use the second one (chat header, not sidebar)
+        if not header:
+            headers = driver.find_elements(By.TAG_NAME, 'header')
+            if len(headers) >= 2:
+                header = headers[1]
+            elif len(headers) == 1:
+                header = headers[0]
+
+        if not header:
+            print("  ERROR: Could not find header element")
+            return participants
+
+        # Find the span with title attribute containing participant names
+        # This is in the subtitle area of the header
+        try:
+            # Look for span with title attribute (contains comma-separated participant names)
+            spans_with_title = header.find_elements(By.CSS_SELECTOR, 'span[title]')
+
+            for span in spans_with_title:
+                title_text = span.get_attribute('title')
+                if title_text and ',' in title_text:
+                    # This looks like the participant list!
+                    print(f"  Found title attribute with participants: {title_text[:100]}...")
+
+                    # Split by comma to get individual participants
+                    participant_names = [name.strip() for name in title_text.split(',')]
+
+                    for name in participant_names:
+                        if name and len(name) > 0:
+                            # Check if it's a phone number or name
+                            if name.startswith('+') or name.replace(' ', '').replace('-', '').isdigit():
+                                # It's a phone number
+                                participants.append({"name": name, "phone": name})
+                            else:
+                                # It's a name
+                                participants.append({"name": name, "phone": "N/A"})
+
+                            print(f"    - Found: {name}")
+
+                    # We found the participants, no need to check other spans
+                    break
+
+        except Exception as e:
+            print(f"  Error extracting from title attribute: {e}")
+
+        # Fallback: If we didn't find participants in title, try getting from visible text
         if not participants:
-            print("  Using fallback: extracting all visible names...")
+            print("  No title attribute found, trying subtitle text...")
             try:
-                # Get all spans with dir="auto" on the page
-                all_spans = driver.find_elements(By.CSS_SELECTOR, 'span[dir="auto"]')
-                seen_names = set()
+                # Get all text from header and look for second line
+                header_text = header.text
+                lines = [line.strip() for line in header_text.split('\n') if line.strip()]
 
-                for span in all_spans:
-                    name = span.text.strip()
-                    # Filter criteria for likely participant names
-                    if (name and 2 < len(name) < 50 and  # Reasonable name length
-                        name not in seen_names and
-                        name.lower() not in ['participants', 'group info', 'members', 'you', 'admin'] and
-                        not name.startswith('~') and  # Avoid phone numbers starting with country codes
-                        not name.startswith('+') and
-                        not any(keyword in name.lower() for keyword in ['click', 'tap', 'search', 'add participant'])):
-
-                        seen_names.add(name)
-                        participants.append({"name": name, "phone": "N/A"})
-                        print(f"    - Found: {name}")
-
-                        # Limit to reasonable number to avoid UI elements
-                        if len(participants) > 100:
-                            break
+                if len(lines) >= 2:
+                    subtitle = lines[1]
+                    # If subtitle has commas, it might be participant names
+                    if ',' in subtitle:
+                        participant_names = [name.strip() for name in subtitle.split(',')]
+                        for name in participant_names:
+                            if name and len(name) > 0:
+                                participants.append({"name": name, "phone": "N/A"})
+                                print(f"    - Found from subtitle: {name}")
             except Exception as e:
-                print(f"  Error in fallback extraction: {e}")
+                print(f"  Error extracting from subtitle: {e}")
 
         print(f"  Total participants found: {len(participants)}")
-
-        # Close the info panel
-        sleep(1)
-        print("  Closing group info panel...")
-
-        # Try multiple methods to close
-        close_success = False
-
-        # Method 1: Look for back/close button
-        close_selectors = [
-            '[data-testid="back"]',
-            'button[aria-label*="Back"]',
-            'button[aria-label*="Close"]',
-            'div[aria-label*="Back"]',
-            'div[aria-label*="Close"]',
-            'span[data-icon="back"]',
-            'span[data-icon="x"]',
-        ]
-
-        for selector in close_selectors:
-            try:
-                close_button = driver.find_element(By.CSS_SELECTOR, selector)
-                close_button.click()
-                sleep(1)
-                print("  Closed via button")
-                close_success = True
-                break
-            except:
-                continue
-
-        # Method 2: Press ESC key
-        if not close_success:
-            try:
-                from selenium.webdriver.common.action_chains import ActionChains
-                ActionChains(driver).send_keys(Keys.ESCAPE).perform()
-                sleep(1)
-                print("  Closed via ESC key")
-                close_success = True
-            except:
-                pass
-
-        # Method 3: Click outside the panel (on the main chat area)
-        if not close_success:
-            try:
-                # Try to find and click the main chat area
-                main_chat = driver.find_element(By.CSS_SELECTOR, 'div[data-testid="conversation-panel"]')
-                main_chat.click()
-                sleep(1)
-                print("  Closed by clicking outside")
-            except:
-                pass
 
     except Exception as e:
         print(f"  Error in get_group_participants: {e}")
