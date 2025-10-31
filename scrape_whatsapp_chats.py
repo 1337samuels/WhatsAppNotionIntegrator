@@ -1,7 +1,8 @@
 from time import sleep
 import csv
-from os.path import join
+from os.path import join, exists
 from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver import Keys
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import StaleElementReferenceException, NoSuchElementException, TimeoutException
@@ -18,23 +19,23 @@ OUTPUT_DIRECTORY = "."
 OUTPUT_NAME = "whatsapp_chats.csv"
 WAIT_TIMEOUT = 10
 
+# Introduction group delimiters from chat_parser.py
+INTRO_DELIMITERS = ["//", "/", "<>", "x"]
 
-def get_chat_names(driver):
-    """Get list of chat names from the sidebar"""
-    chat_names = []
-    pane_side = driver.find_element(by=By.CLASS_NAME, value=PANE_SIDE_DIV)
-    for _ in range(MAX_ITERATIONS):
-        chat_elements = driver.find_elements(by=By.CLASS_NAME, value=CHAT_DIV)
-        for chat_element in chat_elements:
-            try:
-                if chat_element.text not in chat_names:
-                    chat_names.append(chat_element.text)
-                    print(f"Adding chat {chat_element.text}")
-            except StaleElementReferenceException:
-                print("Encountered StaleElementReferenceException, continuing")
-        for _ in range(DOWN_COUNTER):
-            pane_side.send_keys(Keys.DOWN)
-    return chat_names
+
+def is_introduction_group(chat_name):
+    """Check if chat name matches introduction group format from chat_parser.py"""
+    # Check if the chat name contains any of the introduction delimiters
+    for delimiter in INTRO_DELIMITERS:
+        if delimiter in chat_name:
+            print(f"  ✓ Matches introduction format with delimiter: '{delimiter}'")
+            return True
+    return False
+
+
+def is_archive_chat(chat_name):
+    """Check if this is the Archive chat"""
+    return chat_name.lower().strip() in ['archive', 'archived']
 
 
 def is_group_chat(driver):
@@ -181,117 +182,201 @@ def get_group_participants(driver):
     return participants
 
 
-def get_chat_details(driver, chat_names):
-    """Get detailed information for each chat including participants for groups"""
-    chat_details = []
+def append_to_csv(chat_name, participants, output_path):
+    """Append chat details to CSV file immediately (for crash recovery)"""
+    file_exists = exists(output_path)
 
-    print(f"\nProcessing {len(chat_names)} chats to extract details...")
+    with open(output_path, 'a', newline='', encoding='utf-8') as csvfile:
+        fieldnames = ['chat_name', 'chat_type', 'participant_name', 'participant_phone']
+        csv_writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
-    for idx, chat_name in enumerate(chat_names, 1):
-        print(f"\n[{idx}/{len(chat_names)}] Processing chat: {chat_name}")
+        # Write header only if file doesn't exist
+        if not file_exists:
+            csv_writer.writeheader()
 
-        try:
-            # Find and click on the chat
-            found = False
-            chat_elements = driver.find_elements(by=By.CLASS_NAME, value=CHAT_DIV)
-
-            for chat_element in chat_elements:
-                try:
-                    if chat_name in chat_element.text:
-                        chat_element.click()
-                        sleep(2)
-                        found = True
-                        break
-                except StaleElementReferenceException:
-                    continue
-
-            if not found:
-                print(f"  Could not find chat element for: {chat_name}")
-                continue
-
-            # Check if it's a group
-            if is_group_chat(driver):
-                print(f"  Detected as GROUP chat")
-                participants = get_group_participants(driver)
-
-                if participants:
-                    for participant in participants:
-                        chat_details.append({
-                            "chat_name": chat_name,
-                            "chat_type": "group",
-                            "participant_name": participant["name"],
-                            "participant_phone": participant["phone"]
-                        })
-                else:
-                    # Group but no participants found
-                    print(f"  Warning: Group detected but no participants extracted")
-                    chat_details.append({
-                        "chat_name": chat_name,
-                        "chat_type": "group",
-                        "participant_name": "N/A",
-                        "participant_phone": "N/A"
-                    })
-            else:
-                # Individual chat
-                print(f"  Detected as INDIVIDUAL chat")
-                chat_details.append({
+        # Write all participants
+        if participants:
+            for participant in participants:
+                csv_writer.writerow({
                     "chat_name": chat_name,
-                    "chat_type": "individual",
-                    "participant_name": "N/A",
-                    "participant_phone": "N/A"
+                    "chat_type": "group",
+                    "participant_name": participant["name"],
+                    "participant_phone": participant["phone"]
                 })
-
-        except Exception as e:
-            print(f"  Error processing chat {chat_name}: {e}")
-            # Add entry anyway to track that we attempted this chat
-            chat_details.append({
+            print(f"  ✓ Saved {len(participants)} participants to CSV")
+        else:
+            # Group but no participants found
+            csv_writer.writerow({
                 "chat_name": chat_name,
-                "chat_type": "error",
+                "chat_type": "group",
                 "participant_name": "N/A",
                 "participant_phone": "N/A"
             })
-            continue
+            print(f"  ! Warning: No participants found, saved placeholder")
 
-    return chat_details
+
+def process_introduction_groups(driver, output_path):
+    """Process introduction groups using DFS - check and process immediately"""
+    processed_chats = set()
+    total_processed = 0
+
+    print("\nScanning chats for introduction groups (DFS approach)...")
+    print("=" * 60)
+
+    pane_side = driver.find_element(by=By.CLASS_NAME, value=PANE_SIDE_DIV)
+
+    for iteration in range(MAX_ITERATIONS):
+        print(f"\nIteration {iteration + 1}/{MAX_ITERATIONS}")
+
+        chat_elements = driver.find_elements(by=By.CLASS_NAME, value=CHAT_DIV)
+
+        for chat_element in chat_elements:
+            try:
+                chat_name = chat_element.text.strip()
+
+                if not chat_name or chat_name in processed_chats:
+                    continue
+
+                # Skip Archive
+                if is_archive_chat(chat_name):
+                    print(f"⊗ Skipping Archive: {chat_name}")
+                    processed_chats.add(chat_name)
+                    continue
+
+                # Check if it's an introduction group
+                if not is_introduction_group(chat_name):
+                    processed_chats.add(chat_name)
+                    continue
+
+                # Found an introduction group - process it immediately!
+                print(f"\n{'=' * 60}")
+                print(f"★ Found introduction group: {chat_name}")
+                processed_chats.add(chat_name)
+                total_processed += 1
+
+                # Click on the chat
+                chat_element.click()
+                sleep(2)
+
+                # Verify it's a group (should be, but double check)
+                if is_group_chat(driver):
+                    print(f"  ✓ Confirmed as GROUP chat")
+                    participants = get_group_participants(driver)
+
+                    # Save immediately to CSV
+                    append_to_csv(chat_name, participants, output_path)
+                else:
+                    print(f"  ! Not a group chat, skipping")
+
+                print(f"{'=' * 60}")
+
+            except StaleElementReferenceException:
+                print("  StaleElementReferenceException - continuing")
+                continue
+            except Exception as e:
+                print(f"  Error processing chat: {e}")
+                continue
+
+        # Scroll down to reveal more chats
+        for _ in range(DOWN_COUNTER):
+            pane_side.send_keys(Keys.DOWN)
+
+        sleep(0.5)  # Small delay between iterations
+
+    return total_processed
 
 def open_whatsapp():
-    driver = webdriver.Chrome()
-    driver.get(WHATSAPP_URL)
-    sleep(2)
-    input("Connect to WhatsappWeb by linking device. Press Enter when done.")
-    return driver
+    """Open WhatsApp Web using default Chrome profile (auto-login)"""
+    # Set up Chrome options to use default profile
+    chrome_options = Options()
 
-def dump_to_csv(chat_details, output_path):
-    """Write chat details to CSV file with headers"""
-    with open(output_path, 'w', newline='', encoding='utf-8') as csvfile:
-        fieldnames = ['chat_name', 'chat_type', 'participant_name', 'participant_phone']
-        csv_writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        csv_writer.writeheader()
-        for detail in chat_details:
-            csv_writer.writerow(detail)
+    # Use default user profile to auto-login to WhatsApp Web
+    # Note: Update this path if your Chrome profile is in a different location
+    # Linux: ~/.config/google-chrome/Default
+    # macOS: ~/Library/Application Support/Google/Chrome/Default
+    # Windows: %USERPROFILE%\AppData\Local\Google\Chrome\User Data\Default
+    import platform
+    system = platform.system()
+
+    if system == "Linux":
+        user_data_dir = "/home/user/.config/google-chrome"
+    elif system == "Darwin":  # macOS
+        from os.path import expanduser
+        user_data_dir = expanduser("~/Library/Application Support/Google/Chrome")
+    elif system == "Windows":
+        import os
+        user_data_dir = os.path.join(os.environ['USERPROFILE'], 'AppData', 'Local', 'Google', 'Chrome', 'User Data')
+    else:
+        print(f"Warning: Unknown system {system}, using Chrome without default profile")
+        driver = webdriver.Chrome()
+        driver.get(WHATSAPP_URL)
+        sleep(2)
+        input("Connect to WhatsappWeb by linking device. Press Enter when done.")
+        return driver
+
+    chrome_options.add_argument(f"user-data-dir={user_data_dir}")
+    chrome_options.add_argument("profile-directory=Default")
+
+    print(f"Opening Chrome with profile from: {user_data_dir}")
+    print("WhatsApp Web should auto-login if you're already logged in...")
+
+    try:
+        driver = webdriver.Chrome(options=chrome_options)
+        driver.get(WHATSAPP_URL)
+        sleep(5)  # Wait for WhatsApp to load
+
+        # Check if we need to scan QR code
+        print("\nIf you see a QR code, scan it with your phone.")
+        print("If you're already logged in, you should see your chats.")
+        input("Press Enter when WhatsApp Web is ready and you can see your chats...")
+
+        return driver
+    except Exception as e:
+        print(f"Error opening Chrome with profile: {e}")
+        print("Falling back to Chrome without profile...")
+        driver = webdriver.Chrome()
+        driver.get(WHATSAPP_URL)
+        sleep(2)
+        input("Connect to WhatsappWeb by linking device. Press Enter when done.")
+        return driver
 
 def main():
+    output_path = join(OUTPUT_DIRECTORY, OUTPUT_NAME)
+
+    # Delete existing CSV if present (fresh start)
+    if exists(output_path):
+        print(f"Removing existing CSV file: {output_path}")
+        import os
+        os.remove(output_path)
+
     driver = open_whatsapp()
 
-    # Step 1: Get all chat names
-    print("Step 1: Collecting chat names from sidebar...")
-    chat_names = get_chat_names(driver)
-    print(f"Found {len(chat_names)} chats")
+    print("\n" + "=" * 60)
+    print("INTRODUCTION GROUP SCRAPER")
+    print("=" * 60)
+    print(f"Output file: {output_path}")
+    print(f"Looking for groups with delimiters: {', '.join(INTRO_DELIMITERS)}")
+    print("=" * 60)
 
-    # Step 2: Get detailed information for each chat
-    print("\nStep 2: Extracting detailed information from each chat...")
-    chat_details = get_chat_details(driver, chat_names)
+    try:
+        # Process introduction groups with DFS approach
+        total_processed = process_introduction_groups(driver, output_path)
 
-    # Step 3: Save to CSV
-    output_path = join(OUTPUT_DIRECTORY, OUTPUT_NAME)
-    print(f"\nStep 3: Saving {len(chat_details)} records to CSV at {output_path}")
-    dump_to_csv(chat_details, output_path)
-
-    print(f"\n✓ Done! Data saved to {output_path}")
-    print(f"  Total chats processed: {len(chat_names)}")
-    print(f"  Total records: {len(chat_details)}")
-
-    driver.quit()
+        print("\n" + "=" * 60)
+        print("✓ SCRAPING COMPLETE!")
+        print("=" * 60)
+        print(f"Total introduction groups processed: {total_processed}")
+        print(f"Data saved to: {output_path}")
+        print("=" * 60)
+    except KeyboardInterrupt:
+        print("\n\n⚠ Interrupted by user")
+        print(f"Partial data saved to: {output_path}")
+    except Exception as e:
+        print(f"\n\n✗ Error: {e}")
+        print(f"Partial data may be saved to: {output_path}")
+    finally:
+        driver.quit()
+        print("\nBrowser closed.")
 
 if __name__ == "__main__":
     main()
