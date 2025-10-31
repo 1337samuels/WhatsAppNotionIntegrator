@@ -1,6 +1,5 @@
 from notion_client import Client
 
-NOTION_SECRET = "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"
 TEMP_DB_ID = "29a37812620f80f2a963daf81ebe558f"
 
 class Intros:
