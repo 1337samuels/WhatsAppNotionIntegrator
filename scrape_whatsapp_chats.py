@@ -200,11 +200,11 @@ def is_group_chat(driver):
 
 
 def get_group_participants(driver):
-    """Extract participant names from the header's title attribute"""
+    """Extract FULL participant names by clicking into group info"""
     participants = []
 
     try:
-        print("  Extracting participants from header...")
+        print("  Opening group info to extract full names...")
 
         # Find the CORRECT header - the one in the main chat area
         header = None
@@ -240,58 +240,90 @@ def get_group_participants(driver):
             print("  ERROR: Could not find header element")
             return participants
 
-        # Find the span with title attribute containing participant names
-        # This is in the subtitle area of the header
+        # Click on the header to open group info
         try:
-            # Look for span with title attribute (contains comma-separated participant names)
-            spans_with_title = header.find_elements(By.CSS_SELECTOR, 'span[title]')
+            # Find a clickable element in the header
+            clickable_area = header.find_element(By.CSS_SELECTOR, 'div[role="button"]')
+            clickable_area.click()
+            print("  Clicked header to open group info")
+            sleep(3)  # Wait for panel to open
+        except Exception as e:
+            print(f"  Error clicking header: {e}, trying alternative...")
+            try:
+                header.click()
+                sleep(3)
+            except Exception as e2:
+                print(f"  Could not open group info: {e2}")
+                return participants
 
-            for span in spans_with_title:
-                title_text = span.get_attribute('title')
-                if title_text and ',' in title_text:
-                    # This looks like the participant list!
-                    print(f"  Found title attribute with participants: {title_text[:100]}...")
+        # Now look for the participant list in the group info panel
+        # Scroll down in the group info to load all participants
+        try:
+            # Find the scrollable container in group info
+            scrollable_containers = driver.find_elements(By.CSS_SELECTOR, 'div[data-testid="drawer-right"]')
+            if not scrollable_containers:
+                scrollable_containers = driver.find_elements(By.CSS_SELECTOR, 'div.pane-side')
 
-                    # Split by comma to get individual participants
-                    participant_names = [name.strip() for name in title_text.split(',')]
+            if scrollable_containers:
+                container = scrollable_containers[0]
+                # Scroll down a few times to load all participants
+                for _ in range(5):
+                    driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", container)
+                    sleep(0.3)
+                print("  Scrolled group info panel")
+        except Exception as e:
+            print(f"  Warning: Could not scroll group info: {e}")
 
-                    for name in participant_names:
-                        if name and len(name) > 0:
-                            # Check if it's a phone number or name
-                            if name.startswith('+') or name.replace(' ', '').replace('-', '').isdigit():
-                                # It's a phone number
+        # Extract participants - look for contact cells/listitems
+        print("  Extracting participant names from group info...")
+
+        # Strategy 1: Look for list items with contact information
+        contact_cells = driver.find_elements(By.CSS_SELECTOR, 'div[role="listitem"]')
+
+        for cell in contact_cells:
+            try:
+                # Get all spans with dir="auto" (usually contains names)
+                name_spans = cell.find_elements(By.CSS_SELECTOR, 'span[dir="auto"]')
+
+                for span in name_spans:
+                    name = span.text.strip()
+
+                    # Filter out non-participant text
+                    if (name and len(name) > 1 and
+                        name not in ['You', 'Admin', 'Group Admin', 'Participants', 'Members', 'Group info'] and
+                        not any(keyword in name.lower() for keyword in ['add participant', 'invite link', 'group settings', 'search'])):
+
+                        # Check if we already have this participant
+                        if not any(p['name'] == name for p in participants):
+                            # Determine if it's a phone number or name
+                            if name.startswith('+') or (name.replace('-', '').replace(' ', '').replace('(', '').replace(')', '').isdigit() and len(name) > 8):
                                 participants.append({"name": name, "phone": name})
                             else:
-                                # It's a name
                                 participants.append({"name": name, "phone": "N/A"})
-
                             print(f"    - Found: {name}")
+                        break  # Only take first valid name from this cell
 
-                    # We found the participants, no need to check other spans
-                    break
-
-        except Exception as e:
-            print(f"  Error extracting from title attribute: {e}")
-
-        # Fallback: If we didn't find participants in title, try getting from visible text
-        if not participants:
-            print("  No title attribute found, trying subtitle text...")
-            try:
-                # Get all text from header and look for second line
-                header_text = header.text
-                lines = [line.strip() for line in header_text.split('\n') if line.strip()]
-
-                if len(lines) >= 2:
-                    subtitle = lines[1]
-                    # If subtitle has commas, it might be participant names
-                    if ',' in subtitle:
-                        participant_names = [name.strip() for name in subtitle.split(',')]
-                        for name in participant_names:
-                            if name and len(name) > 0:
-                                participants.append({"name": name, "phone": "N/A"})
-                                print(f"    - Found from subtitle: {name}")
             except Exception as e:
-                print(f"  Error extracting from subtitle: {e}")
+                continue
+
+        # Close the group info panel
+        sleep(1)
+        try:
+            # Try to find and click back/close button
+            close_buttons = driver.find_elements(By.CSS_SELECTOR, '[data-testid="back"], button[aria-label*="Back"], button[aria-label*="Close"]')
+
+            if close_buttons:
+                close_buttons[0].click()
+                print("  Closed group info panel")
+                sleep(1)
+            else:
+                # Press ESC key as fallback
+                from selenium.webdriver.common.action_chains import ActionChains
+                ActionChains(driver).send_keys(Keys.ESCAPE).perform()
+                print("  Closed group info panel (ESC)")
+                sleep(1)
+        except Exception as e:
+            print(f"  Warning: Error closing group info: {e}")
 
         print(f"  Total participants found: {len(participants)}")
 
@@ -375,9 +407,28 @@ def process_introduction_groups(driver, output_path):
                 processed_chats.add(chat_name)
                 total_processed += 1
 
+                # Scroll the chat element into view before clicking
+                try:
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", chat_element)
+                    sleep(0.5)  # Brief pause after scrolling
+                    print(f"  Scrolled chat into view")
+                except Exception as e:
+                    print(f"  Warning: Could not scroll into view: {e}")
+
                 # Click on the chat
-                chat_element.click()
-                sleep(2)
+                try:
+                    chat_element.click()
+                    sleep(2)
+                except Exception as e:
+                    print(f"  Error clicking chat: {e}")
+                    # Try JavaScript click as fallback
+                    try:
+                        driver.execute_script("arguments[0].click();", chat_element)
+                        sleep(2)
+                        print(f"  Clicked using JavaScript")
+                    except Exception as e2:
+                        print(f"  JavaScript click also failed: {e2}")
+                        continue
 
                 # Verify it's a group (should be, but double check)
                 if is_group_chat(driver):
