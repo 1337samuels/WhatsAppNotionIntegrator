@@ -288,10 +288,10 @@ def get_group_participants(driver):
                 for span in name_spans:
                     name = span.text.strip()
 
-                    # Filter out non-participant text
+                    # Filter out non-participant text (but keep "You" as it's a valid participant)
                     if (name and len(name) > 1 and
-                        name not in ['You', 'Admin', 'Group Admin', 'Participants', 'Members', 'Group info'] and
-                        not any(keyword in name.lower() for keyword in ['add participant', 'invite link', 'group settings', 'search'])):
+                        name not in ['Admin', 'Group Admin', 'Group admin', 'Participants', 'Members', 'Group info'] and
+                        not any(keyword in name.lower() for keyword in ['add participant', 'invite link', 'group settings', 'search', 'uk number', 'number +'])):
 
                         # Check if we already have this participant
                         if not any(p['name'] == name for p in participants):
