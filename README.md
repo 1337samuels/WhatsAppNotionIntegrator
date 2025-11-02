@@ -58,9 +58,10 @@ python scrape_whatsapp_chats.py
    - **Save immediately** to CSV (crash-resistant)
    - Continue to the next introduction group
 
-4. The script creates two files in the output directory:
-   - `whatsapp_chats.csv` - All participant data (saved incrementally)
-   - `whatsapp_scraper.log` - Complete log of all operations (for debugging)
+4. The script creates two timestamped files in the output directory (each run creates unique files):
+   - `whatsapp_chats_YYYYMMDD_HHMMSS.csv` - All participant data (saved incrementally)
+   - `whatsapp_scraper_YYYYMMDD_HHMMSS.log` - Complete log of all operations (for debugging)
+   - Example: `whatsapp_chats_20251102_143055.csv` and `whatsapp_scraper_20251102_143055.log`
 
 ## CSV Output Format
 
@@ -95,8 +96,8 @@ You can modify these constants at the top of the script:
 - `MAX_ITERATIONS`: Maximum number of scroll iterations as a safety limit (default: 500)
   - The script will auto-stop when it detects no new chats, usually well before this limit
 - `OUTPUT_DIRECTORY`: Where to save output files (default: current directory)
-- `OUTPUT_NAME`: Name of the output CSV file (default: "whatsapp_chats.csv")
-- `LOG_NAME`: Name of the log file (default: "whatsapp_scraper.log")
+- `OUTPUT_NAME`: Base name for CSV files - timestamp is added automatically (default: "whatsapp_chats")
+- `LOG_NAME`: Base name for log files - timestamp is added automatically (default: "whatsapp_scraper")
 - `WAIT_TIMEOUT`: Timeout for waiting for elements (default: 10 seconds)
 - `INTRO_DELIMITERS`: Delimiters that identify introduction groups (default: `["//", "/", "<>", "x"]`)
 
@@ -116,9 +117,10 @@ Unlike a typical scraper that collects all chat names first and then processes t
 
 The script writes data to the CSV file immediately after processing each group using **append mode**. This means:
 
-- If the script crashes, all previously processed groups are already saved
+- If the script crashes, all previously processed groups are already saved in that run's CSV file
 - No data loss even with interruptions
-- Can resume by running the script again (it removes the old CSV and starts fresh)
+- Each run creates new timestamped files, so previous runs are never overwritten
+- Can safely run multiple times to collect data from different time periods
 
 ### Chrome Profile Auto-Login
 

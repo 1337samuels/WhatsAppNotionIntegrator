@@ -17,8 +17,8 @@ CHAT_DIV = "_ak8q"
 PANE_SIDE_DIV = "_ak9y"
 #OUTPUT_DIRECTORY = r"C:\Users\gilad\OneDrive\Desktop\Netz\Whatsapp exporter"
 OUTPUT_DIRECTORY = "."
-OUTPUT_NAME = "whatsapp_chats.csv"
-LOG_NAME = "whatsapp_scraper.log"
+OUTPUT_NAME = "whatsapp_chats"  # Timestamp will be added automatically
+LOG_NAME = "whatsapp_scraper"  # Timestamp will be added automatically
 WAIT_TIMEOUT = 10
 
 # Introduction group delimiters from chat_parser.py
@@ -594,21 +594,24 @@ def open_whatsapp():
         return driver
 
 def main():
-    output_path = join(OUTPUT_DIRECTORY, OUTPUT_NAME)
-    log_path = join(OUTPUT_DIRECTORY, LOG_NAME)
+    # Generate timestamped filenames for this run
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Create unique filenames with timestamp
+    csv_filename = f"{OUTPUT_NAME}_{timestamp}.csv"
+    log_filename = f"{LOG_NAME}_{timestamp}.log"
+
+    output_path = join(OUTPUT_DIRECTORY, csv_filename)
+    log_path = join(OUTPUT_DIRECTORY, log_filename)
 
     # Set up logging to both console and file
     setup_logging(log_path)
     log("=" * 60)
     log("WhatsApp Introduction Group Scraper - Starting")
+    log(f"Timestamp: {timestamp}")
     log(f"Log file: {log_path}")
+    log(f"CSV file: {output_path}")
     log("=" * 60)
-
-    # Delete existing CSV if present (fresh start)
-    if exists(output_path):
-        log(f"Removing existing CSV file: {output_path}")
-        import os
-        os.remove(output_path)
 
     driver = open_whatsapp()
 
