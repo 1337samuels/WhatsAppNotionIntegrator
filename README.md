@@ -10,6 +10,7 @@ A Python tool to scrape WhatsApp Web "introduction groups" and export participan
 - Crash-resistant: Saves data immediately after each group is processed
 - Extracts participant names and phone numbers from group chats
 - **Smart scrolling**: Automatically detects when it has reached the end of your chat list
+- **Comprehensive logging**: All operations logged to both console and file for debugging
 - Includes participant count for each group
 - Ignores Archive and individual chats
 - Exports data to CSV format for easy analysis
@@ -57,7 +58,9 @@ python scrape_whatsapp_chats.py
    - **Save immediately** to CSV (crash-resistant)
    - Continue to the next introduction group
 
-4. All data is saved to `whatsapp_chats.csv` as the script runs
+4. The script creates two files in the output directory:
+   - `whatsapp_chats.csv` - All participant data (saved incrementally)
+   - `whatsapp_scraper.log` - Complete log of all operations (for debugging)
 
 ## CSV Output Format
 
@@ -89,10 +92,11 @@ Note: Each participant gets their own row with the total participant count for t
 
 You can modify these constants at the top of the script:
 
-- `MAX_ITERATIONS`: Maximum number of scroll iterations as a safety limit (default: 50)
+- `MAX_ITERATIONS`: Maximum number of scroll iterations as a safety limit (default: 500)
   - The script will auto-stop when it detects no new chats, usually well before this limit
-- `OUTPUT_DIRECTORY`: Where to save the CSV file (default: current directory)
+- `OUTPUT_DIRECTORY`: Where to save output files (default: current directory)
 - `OUTPUT_NAME`: Name of the output CSV file (default: "whatsapp_chats.csv")
+- `LOG_NAME`: Name of the log file (default: "whatsapp_scraper.log")
 - `WAIT_TIMEOUT`: Timeout for waiting for elements (default: 10 seconds)
 - `INTRO_DELIMITERS`: Delimiters that identify introduction groups (default: `["//", "/", "<>", "x"]`)
 

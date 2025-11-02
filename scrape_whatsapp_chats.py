@@ -1,6 +1,8 @@
 from time import sleep
 import csv
+import logging
 from os.path import join, exists
+from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver import Keys
@@ -10,16 +12,53 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 WHATSAPP_URL = 'https://web.whatsapp.com/'
-MAX_ITERATIONS = 50  # Maximum iterations as safety limit
+MAX_ITERATIONS = 500  # Maximum iterations as safety limit
 CHAT_DIV = "_ak8q"
 PANE_SIDE_DIV = "_ak9y"
 #OUTPUT_DIRECTORY = r"C:\Users\gilad\OneDrive\Desktop\Netz\Whatsapp exporter"
 OUTPUT_DIRECTORY = "."
 OUTPUT_NAME = "whatsapp_chats.csv"
+LOG_NAME = "whatsapp_scraper.log"
 WAIT_TIMEOUT = 10
 
 # Introduction group delimiters from chat_parser.py
 INTRO_DELIMITERS = ["//", "/", "<>", "x"]
+
+
+def setup_logging(log_path):
+    """
+    Set up logging to both console and file.
+    All messages are logged to file and also printed to console.
+    """
+    # Create logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    # Remove any existing handlers
+    logger.handlers = []
+
+    # Create formatter
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s',
+                                  datefmt='%Y-%m-%d %H:%M:%S')
+
+    # File handler - logs everything to file
+    file_handler = logging.FileHandler(log_path, mode='w', encoding='utf-8')
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    # Console handler - logs to terminal
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    return logger
+
+
+def log(message):
+    """Helper function to log messages (simpler than logging.info)"""
+    logging.info(message)
 
 
 def is_introduction_group(chat_name):
@@ -27,7 +66,7 @@ def is_introduction_group(chat_name):
     # Check if the chat name contains any of the introduction delimiters
     for delimiter in INTRO_DELIMITERS:
         if delimiter in chat_name:
-            print(f"  ✓ Matches introduction format with delimiter: '{delimiter}'")
+            log(f"  ✓ Matches introduction format with delimiter: '{delimiter}'")
             return True
     return False
 
@@ -60,7 +99,7 @@ def is_group_chat(driver):
                 try:
                     chat_panel = driver.find_element(By.CSS_SELECTOR, selector)
                     header = chat_panel.find_element(By.TAG_NAME, 'header')
-                    print(f"  Found header using panel selector: {selector}")
+                    log(f"  Found header using panel selector: {selector}")
                     break
                 except:
                     continue
@@ -72,28 +111,28 @@ def is_group_chat(driver):
         if not header:
             try:
                 headers = driver.find_elements(By.TAG_NAME, 'header')
-                print(f"  Found {len(headers)} header elements total")
+                log(f"  Found {len(headers)} header elements total")
                 if len(headers) >= 2:
                     # Use the second header (first is usually sidebar)
                     header = headers[1]
-                    print(f"  Using header index 1 (second header)")
+                    log(f"  Using header index 1 (second header)")
                 elif len(headers) == 1:
                     header = headers[0]
-                    print(f"  Only one header found, using it")
+                    log(f"  Only one header found, using it")
             except:
                 pass
 
         if not header:
-            print("  ERROR: Could not find any header element")
+            log("  ERROR: Could not find any header element")
             return False
 
         # Debug: Print all text in header
         header_full_text = header.text
-        print(f"  Header full text:\n{header_full_text}")
+        log(f"  Header full text:\n{header_full_text}")
 
         # Split by newlines to get separate lines
         lines = [line.strip() for line in header_full_text.split('\n') if line.strip()]
-        print(f"  Header lines: {lines}")
+        log(f"  Header lines: {lines}")
 
         # Usually the structure is:
         # Line 0: Chat name
@@ -104,15 +143,15 @@ def is_group_chat(driver):
         if len(lines) >= 2:
             # The second line is typically the subtitle
             subtitle_text = lines[1].lower()
-            print(f"  Subtitle text (from lines): '{subtitle_text}'")
+            log(f"  Subtitle text (from lines): '{subtitle_text}'")
         else:
-            print(f"  Only found {len(lines)} line(s) in header, trying other methods...")
+            log(f"  Only found {len(lines)} line(s) in header, trying other methods...")
 
             # Try to find specific elements
             try:
                 # Look for all span elements and get their text
                 spans = header.find_elements(By.TAG_NAME, 'span')
-                print(f"  Found {len(spans)} span elements in header")
+                log(f"  Found {len(spans)} span elements in header")
 
                 # Try to find the subtitle by looking for spans that aren't the title
                 span_texts = []
@@ -120,7 +159,7 @@ def is_group_chat(driver):
                     text = span.text.strip()
                     if text:
                         span_texts.append(text)
-                        print(f"    Span {i}: '{text}'")
+                        log(f"    Span {i}: '{text}'")
 
                 # Look for a span that looks like a subtitle (not the chat name)
                 # The subtitle is usually shorter and contains specific patterns
@@ -128,30 +167,30 @@ def is_group_chat(driver):
                 for text in span_texts:
                     if text != chat_name and len(text) > 0:
                         subtitle_text = text.lower()
-                        print(f"  Found potential subtitle: '{subtitle_text}'")
+                        log(f"  Found potential subtitle: '{subtitle_text}'")
                         break
 
             except Exception as e:
-                print(f"  Error getting spans: {e}")
+                log(f"  Error getting spans: {e}")
 
         if not subtitle_text:
-            print(f"  Could not find subtitle text")
+            log(f"  Could not find subtitle text")
             # Try one more method - get all divs in header
             try:
                 divs = header.find_elements(By.TAG_NAME, 'div')
-                print(f"  Trying {len(divs)} div elements...")
+                log(f"  Trying {len(divs)} div elements...")
                 for i, div in enumerate(divs):
                     text = div.text.strip()
                     if text and '\n' not in text and len(text) > 5 and len(text) < 100:
                         # This might be a subtitle
                         if i > 0:  # Not the first div (which is likely the title)
                             subtitle_text = text.lower()
-                            print(f"    Found subtitle from div {i}: '{subtitle_text}'")
+                            log(f"    Found subtitle from div {i}: '{subtitle_text}'")
                             break
             except Exception as e:
-                print(f"  Error getting divs: {e}")
+                log(f"  Error getting divs: {e}")
 
-        print(f"  Final subtitle text: '{subtitle_text}'")
+        log(f"  Final subtitle text: '{subtitle_text}'")
 
         # Individual contacts typically say "click here for contact info" or "tap here for contact info"
         contact_keywords = ['click here for contact info', 'tap here for contact info',
@@ -162,37 +201,37 @@ def is_group_chat(driver):
                            'select for group info', ',']
 
         if any(keyword in subtitle_text for keyword in contact_keywords):
-            print(f"  → Detected as INDIVIDUAL (contact info message)")
+            log(f"  → Detected as INDIVIDUAL (contact info message)")
             return False
 
         # Groups show participant names (comma-separated) or participant count
         # If subtitle contains commas, it's likely a list of participants
         if any(keyword in subtitle_text for keyword in group_keywords):
-            print(f"  → Detected as GROUP (participant list with commas)")
+            log(f"  → Detected as GROUP (participant list with commas)")
             return True
 
         # Groups may also show "you, person1, person2" or similar
         if 'you' in subtitle_text and len(subtitle_text) > 10:
-            print(f"  → Detected as GROUP (contains 'you' with other names)")
+            log(f"  → Detected as GROUP (contains 'you' with other names)")
             return True
 
         # Check for participant count indicators
         if any(keyword in subtitle_text for keyword in ['participants', 'members', 'participant', 'member']):
-            print(f"  → Detected as GROUP (participant/member count)")
+            log(f"  → Detected as GROUP (participant/member count)")
             return True
 
         # If we have a subtitle that's not a contact info message and has some length,
         # it's likely a group showing participant names
         if subtitle_text and len(subtitle_text) > 5 and not any(keyword in subtitle_text for keyword in contact_keywords):
-            print(f"  → Detected as GROUP (has subtitle, not contact info)")
+            log(f"  → Detected as GROUP (has subtitle, not contact info)")
             return True
 
         # Default to not a group if we can't determine
-        print(f"  → Could not determine, defaulting to NOT a group")
+        log(f"  → Could not determine, defaulting to NOT a group")
         return False
 
     except Exception as e:
-        print(f"  Error checking if group: {e}")
+        log(f"  Error checking if group: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -203,7 +242,7 @@ def get_group_participants(driver):
     participants = []
 
     try:
-        print("  Opening group info to extract full names...")
+        log("  Opening group info to extract full names...")
 
         # Find the CORRECT header - the one in the main chat area
         header = None
@@ -236,7 +275,7 @@ def get_group_participants(driver):
                 header = headers[0]
 
         if not header:
-            print("  ERROR: Could not find header element")
+            log("  ERROR: Could not find header element")
             return participants
 
         # Click on the header to open group info
@@ -244,15 +283,15 @@ def get_group_participants(driver):
             # Find a clickable element in the header
             clickable_area = header.find_element(By.CSS_SELECTOR, 'div[role="button"]')
             clickable_area.click()
-            print("  Clicked header to open group info")
+            log("  Clicked header to open group info")
             sleep(3)  # Wait for panel to open
         except Exception as e:
-            print(f"  Error clicking header: {e}, trying alternative...")
+            log(f"  Error clicking header: {e}, trying alternative...")
             try:
                 header.click()
                 sleep(3)
             except Exception as e2:
-                print(f"  Could not open group info: {e2}")
+                log(f"  Could not open group info: {e2}")
                 return participants
 
         # Now look for the participant list in the group info panel
@@ -269,12 +308,12 @@ def get_group_participants(driver):
                 for _ in range(5):
                     driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", container)
                     sleep(0.3)
-                print("  Scrolled group info panel")
+                log("  Scrolled group info panel")
         except Exception as e:
-            print(f"  Warning: Could not scroll group info: {e}")
+            log(f"  Warning: Could not scroll group info: {e}")
 
         # Extract participants - look for contact cells/listitems
-        print("  Extracting participant names from group info...")
+        log("  Extracting participant names from group info...")
 
         # Strategy 1: Look for list items with contact information
         contact_cells = driver.find_elements(By.CSS_SELECTOR, 'div[role="listitem"]')
@@ -299,7 +338,7 @@ def get_group_participants(driver):
                                 participants.append({"name": name, "phone": name})
                             else:
                                 participants.append({"name": name, "phone": "N/A"})
-                            print(f"    - Found: {name}")
+                            log(f"    - Found: {name}")
                         break  # Only take first valid name from this cell
 
             except Exception as e:
@@ -313,21 +352,21 @@ def get_group_participants(driver):
 
             if close_buttons:
                 close_buttons[0].click()
-                print("  Closed group info panel")
+                log("  Closed group info panel")
                 sleep(1)
             else:
                 # Press ESC key as fallback
                 from selenium.webdriver.common.action_chains import ActionChains
                 ActionChains(driver).send_keys(Keys.ESCAPE).perform()
-                print("  Closed group info panel (ESC)")
+                log("  Closed group info panel (ESC)")
                 sleep(1)
         except Exception as e:
-            print(f"  Warning: Error closing group info: {e}")
+            log(f"  Warning: Error closing group info: {e}")
 
-        print(f"  Total participants found: {len(participants)}")
+        log(f"  Total participants found: {len(participants)}")
 
     except Exception as e:
-        print(f"  Error in get_group_participants: {e}")
+        log(f"  Error in get_group_participants: {e}")
         import traceback
         traceback.print_exc()
 
@@ -359,7 +398,7 @@ def append_to_csv(chat_name, participants, output_path):
                     "participant_phone": participant["phone"],
                     "participant_count": participant_count
                 })
-            print(f"  ✓ Saved {len(participants)} participants to CSV (total: {participant_count})")
+            log(f"  ✓ Saved {len(participants)} participants to CSV (total: {participant_count})")
         else:
             # Group but no participants found
             csv_writer.writerow({
@@ -369,7 +408,7 @@ def append_to_csv(chat_name, participants, output_path):
                 "participant_phone": "N/A",
                 "participant_count": 0
             })
-            print(f"  ! Warning: No participants found, saved placeholder")
+            log(f"  ! Warning: No participants found, saved placeholder")
 
 
 def process_introduction_groups(driver, output_path):
@@ -379,15 +418,15 @@ def process_introduction_groups(driver, output_path):
     no_new_chats_count = 0  # Track iterations with no new chats
     max_no_new_iterations = 3  # Stop after this many iterations with no new chats
 
-    print("\nScanning chats for introduction groups (DFS approach)...")
-    print("=" * 60)
+    log("\nScanning chats for introduction groups (DFS approach)...")
+    log("=" * 60)
 
     pane_side = driver.find_element(by=By.CLASS_NAME, value=PANE_SIDE_DIV)
 
     iteration = 0
     while iteration < MAX_ITERATIONS:
         iteration += 1
-        print(f"\nIteration {iteration}")
+        log(f"\nIteration {iteration}")
 
         chat_elements = driver.find_elements(by=By.CLASS_NAME, value=CHAT_DIV)
 
@@ -416,7 +455,7 @@ def process_introduction_groups(driver, output_path):
 
                 # Skip Archive
                 if is_archive_chat(chat_name):
-                    print(f"⊗ Skipping Archive: {chat_name}")
+                    log(f"⊗ Skipping Archive: {chat_name}")
                     processed_chats.add(chat_name)
                     continue
 
@@ -426,8 +465,8 @@ def process_introduction_groups(driver, output_path):
                     continue
 
                 # Found an introduction group - process it immediately!
-                print(f"\n{'=' * 60}")
-                print(f"★ Found introduction group: {chat_name}")
+                log(f"\n{'=' * 60}")
+                log(f"★ Found introduction group: {chat_name}")
                 processed_chats.add(chat_name)
                 total_processed += 1
 
@@ -435,51 +474,51 @@ def process_introduction_groups(driver, output_path):
                 try:
                     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", chat_element)
                     sleep(0.5)  # Brief pause after scrolling
-                    print(f"  Scrolled chat into view")
+                    log(f"  Scrolled chat into view")
                 except Exception as e:
-                    print(f"  Warning: Could not scroll into view: {e}")
+                    log(f"  Warning: Could not scroll into view: {e}")
 
                 # Click on the chat
                 try:
                     chat_element.click()
                     sleep(2)
                 except Exception as e:
-                    print(f"  Error clicking chat: {e}")
+                    log(f"  Error clicking chat: {e}")
                     # Try JavaScript click as fallback
                     try:
                         driver.execute_script("arguments[0].click();", chat_element)
                         sleep(2)
-                        print(f"  Clicked using JavaScript")
+                        log(f"  Clicked using JavaScript")
                     except Exception as e2:
-                        print(f"  JavaScript click also failed: {e2}")
+                        log(f"  JavaScript click also failed: {e2}")
                         continue
 
                 # Verify it's a group (should be, but double check)
                 if is_group_chat(driver):
-                    print(f"  ✓ Confirmed as GROUP chat")
+                    log(f"  ✓ Confirmed as GROUP chat")
                     participants = get_group_participants(driver)
 
                     # Save immediately to CSV
                     append_to_csv(chat_name, participants, output_path)
                 else:
-                    print(f"  ! Not a group chat, skipping")
+                    log(f"  ! Not a group chat, skipping")
 
-                print(f"{'=' * 60}")
+                log(f"{'=' * 60}")
 
             except StaleElementReferenceException:
-                print("  StaleElementReferenceException - continuing")
+                log("  StaleElementReferenceException - continuing")
                 continue
             except Exception as e:
-                print(f"  Error processing chat: {e}")
+                log(f"  Error processing chat: {e}")
                 continue
 
         # Check if we found new chats in this iteration
         if not found_new_chats:
             no_new_chats_count += 1
-            print(f"  No new chats found in this iteration ({no_new_chats_count}/{max_no_new_iterations})")
+            log(f"  No new chats found in this iteration ({no_new_chats_count}/{max_no_new_iterations})")
 
             if no_new_chats_count >= max_no_new_iterations:
-                print(f"\n✓ Reached end of chat list (no new chats after {max_no_new_iterations} iterations)")
+                log(f"\n✓ Reached end of chat list (no new chats after {max_no_new_iterations} iterations)")
                 break
         else:
             # Reset counter if we found new chats
@@ -493,9 +532,9 @@ def process_introduction_groups(driver, output_path):
 
         sleep(0.5)  # Small delay between iterations
 
-    print(f"\n{'=' * 60}")
-    print(f"Scan complete! Processed {total_processed} introduction groups")
-    print(f"{'=' * 60}")
+    log(f"\n{'=' * 60}")
+    log(f"Scan complete! Processed {total_processed} introduction groups")
+    log(f"{'=' * 60}")
 
     return total_processed
 
@@ -521,7 +560,7 @@ def open_whatsapp():
         import os
         user_data_dir = os.path.join(os.environ['USERPROFILE'], 'AppData', 'Local', 'Google', 'Chrome', 'User Data')
     else:
-        print(f"Warning: Unknown system {system}, using Chrome without default profile")
+        log(f"Warning: Unknown system {system}, using Chrome without default profile")
         driver = webdriver.Chrome()
         driver.get(WHATSAPP_URL)
         sleep(2)
@@ -531,8 +570,8 @@ def open_whatsapp():
     chrome_options.add_argument(f"user-data-dir={user_data_dir}")
     chrome_options.add_argument("profile-directory=Default")
 
-    print(f"Opening Chrome with profile from: {user_data_dir}")
-    print("WhatsApp Web should auto-login if you're already logged in...")
+    log(f"Opening Chrome with profile from: {user_data_dir}")
+    log("WhatsApp Web should auto-login if you're already logged in...")
 
     try:
         driver = webdriver.Chrome(options=chrome_options)
@@ -540,14 +579,14 @@ def open_whatsapp():
         sleep(5)  # Wait for WhatsApp to load
 
         # Check if we need to scan QR code
-        print("\nIf you see a QR code, scan it with your phone.")
-        print("If you're already logged in, you should see your chats.")
+        log("\nIf you see a QR code, scan it with your phone.")
+        log("If you're already logged in, you should see your chats.")
         input("Press Enter when WhatsApp Web is ready and you can see your chats...")
 
         return driver
     except Exception as e:
-        print(f"Error opening Chrome with profile: {e}")
-        print("Falling back to Chrome without profile...")
+        log(f"Error opening Chrome with profile: {e}")
+        log("Falling back to Chrome without profile...")
         driver = webdriver.Chrome()
         driver.get(WHATSAPP_URL)
         sleep(2)
@@ -556,41 +595,49 @@ def open_whatsapp():
 
 def main():
     output_path = join(OUTPUT_DIRECTORY, OUTPUT_NAME)
+    log_path = join(OUTPUT_DIRECTORY, LOG_NAME)
+
+    # Set up logging to both console and file
+    setup_logging(log_path)
+    log("=" * 60)
+    log("WhatsApp Introduction Group Scraper - Starting")
+    log(f"Log file: {log_path}")
+    log("=" * 60)
 
     # Delete existing CSV if present (fresh start)
     if exists(output_path):
-        print(f"Removing existing CSV file: {output_path}")
+        log(f"Removing existing CSV file: {output_path}")
         import os
         os.remove(output_path)
 
     driver = open_whatsapp()
 
-    print("\n" + "=" * 60)
-    print("INTRODUCTION GROUP SCRAPER")
-    print("=" * 60)
-    print(f"Output file: {output_path}")
-    print(f"Looking for groups with delimiters: {', '.join(INTRO_DELIMITERS)}")
-    print("=" * 60)
+    log("\n" + "=" * 60)
+    log("INTRODUCTION GROUP SCRAPER")
+    log("=" * 60)
+    log(f"Output file: {output_path}")
+    log(f"Looking for groups with delimiters: {', '.join(INTRO_DELIMITERS)}")
+    log("=" * 60)
 
     try:
         # Process introduction groups with DFS approach
         total_processed = process_introduction_groups(driver, output_path)
 
-        print("\n" + "=" * 60)
-        print("✓ SCRAPING COMPLETE!")
-        print("=" * 60)
-        print(f"Total introduction groups processed: {total_processed}")
-        print(f"Data saved to: {output_path}")
-        print("=" * 60)
+        log("\n" + "=" * 60)
+        log("✓ SCRAPING COMPLETE!")
+        log("=" * 60)
+        log(f"Total introduction groups processed: {total_processed}")
+        log(f"Data saved to: {output_path}")
+        log("=" * 60)
     except KeyboardInterrupt:
-        print("\n\n⚠ Interrupted by user")
-        print(f"Partial data saved to: {output_path}")
+        log("\n\n⚠ Interrupted by user")
+        log(f"Partial data saved to: {output_path}")
     except Exception as e:
-        print(f"\n\n✗ Error: {e}")
-        print(f"Partial data may be saved to: {output_path}")
+        log(f"\n\n✗ Error: {e}")
+        log(f"Partial data may be saved to: {output_path}")
     finally:
         driver.quit()
-        print("\nBrowser closed.")
+        log("\nBrowser closed.")
 
 if __name__ == "__main__":
     main()
