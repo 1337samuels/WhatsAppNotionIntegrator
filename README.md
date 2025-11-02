@@ -9,6 +9,8 @@ A Python tool to scrape WhatsApp Web "introduction groups" and export participan
 - Depth-First Search (DFS) approach - processes groups immediately as found
 - Crash-resistant: Saves data immediately after each group is processed
 - Extracts participant names and phone numbers from group chats
+- **Smart scrolling**: Automatically detects when it has reached the end of your chat list
+- Includes participant count for each group
 - Ignores Archive and individual chats
 - Exports data to CSV format for easy analysis
 
@@ -65,29 +67,30 @@ The output CSV file contains the following columns:
 - `chat_type`: Always "group" (only group chats are processed)
 - `participant_name`: Name of participant in the group
 - `participant_phone`: Phone number if available or "N/A"
+- `participant_count`: Total number of participants in the group
 
 ### Example Output
 
 ```csv
-chat_name,chat_type,participant_name,participant_phone
-John/Jane,group,John Smith,+1234567890
-John/Jane,group,Jane Doe,+9876543210
-Alice<>Bob,group,Alice Williams,N/A
-Alice<>Bob,group,Bob Johnson,+1122334455
-Sarah & Mike//Tom + Lisa,group,Sarah Chen,+9998887777
-Sarah & Mike//Tom + Lisa,group,Mike Brown,N/A
-Sarah & Mike//Tom + Lisa,group,Tom Davis,+5554443333
-Sarah & Mike//Tom + Lisa,group,Lisa Wilson,N/A
+chat_name,chat_type,participant_name,participant_phone,participant_count
+John/Jane,group,John Smith,+1234567890,2
+John/Jane,group,Jane Doe,+9876543210,2
+Alice<>Bob,group,Alice Williams,N/A,2
+Alice<>Bob,group,Bob Johnson,+1122334455,2
+Sarah & Mike//Tom + Lisa,group,Sarah Chen,+9998887777,4
+Sarah & Mike//Tom + Lisa,group,Mike Brown,N/A,4
+Sarah & Mike//Tom + Lisa,group,Tom Davis,+5554443333,4
+Sarah & Mike//Tom + Lisa,group,Lisa Wilson,N/A,4
 ```
 
-Note: Each participant gets their own row. Data is saved immediately after processing each group.
+Note: Each participant gets their own row with the total participant count for that group. Data is saved immediately after processing each group.
 
 ## Configuration
 
 You can modify these constants at the top of the script:
 
-- `MAX_ITERATIONS`: Number of scroll iterations (default: 50)
-- `DOWN_COUNTER`: Number of down key presses per iteration (default: 20)
+- `MAX_ITERATIONS`: Maximum number of scroll iterations as a safety limit (default: 50)
+  - The script will auto-stop when it detects no new chats, usually well before this limit
 - `OUTPUT_DIRECTORY`: Where to save the CSV file (default: current directory)
 - `OUTPUT_NAME`: Name of the output CSV file (default: "whatsapp_chats.csv")
 - `WAIT_TIMEOUT`: Timeout for waiting for elements (default: 10 seconds)
@@ -103,6 +106,7 @@ Unlike a typical scraper that collects all chat names first and then processes t
 2. **Check** each chat name for introduction group patterns
 3. **Process immediately** if it matches (click, extract participants, save to CSV)
 4. **Continue** to next chat
+5. **Auto-detect** when the end of the chat list is reached (stops scrolling when no new chats appear)
 
 ### Crash Resistance
 
@@ -133,6 +137,6 @@ The script opens Chrome with your default user profile, which means:
 
 - **Chrome profile error**: If Chrome can't open with your profile (already open), close Chrome and try again, or the script will fallback to a fresh profile
 - **Can't find participants**: WhatsApp Web's structure may have changed. The script uses multiple fallback strategies
-- **Script too slow**: Reduce `MAX_ITERATIONS` or `DOWN_COUNTER` to process fewer chats
+- **Script stops early**: The script auto-detects when it has reached the end of chats. If you have many chats, it should process them all
 - **StaleElementReferenceException**: Expected and handled automatically - occurs when the page updates while scrolling
 - **No introduction groups found**: Check that your groups have the correct naming pattern with delimiters: `//`, `/`, `<>`, or `x` 

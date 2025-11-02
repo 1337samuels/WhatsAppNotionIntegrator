@@ -10,8 +10,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 WHATSAPP_URL = 'https://web.whatsapp.com/'
-MAX_ITERATIONS = 50
-DOWN_COUNTER = 20
+MAX_ITERATIONS = 50  # Maximum iterations as safety limit
 CHAT_DIV = "_ak8q"
 PANE_SIDE_DIV = "_ak9y"
 #OUTPUT_DIRECTORY = r"C:\Users\gilad\OneDrive\Desktop\Netz\Whatsapp exporter"
@@ -340,12 +339,15 @@ def append_to_csv(chat_name, participants, output_path):
     file_exists = exists(output_path)
 
     with open(output_path, 'a', newline='', encoding='utf-8') as csvfile:
-        fieldnames = ['chat_name', 'chat_type', 'participant_name', 'participant_phone']
+        fieldnames = ['chat_name', 'chat_type', 'participant_name', 'participant_phone', 'participant_count']
         csv_writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
         # Write header only if file doesn't exist
         if not file_exists:
             csv_writer.writeheader()
+
+        # Calculate total participant count
+        participant_count = len(participants) if participants else 0
 
         # Write all participants
         if participants:
@@ -354,16 +356,18 @@ def append_to_csv(chat_name, participants, output_path):
                     "chat_name": chat_name,
                     "chat_type": "group",
                     "participant_name": participant["name"],
-                    "participant_phone": participant["phone"]
+                    "participant_phone": participant["phone"],
+                    "participant_count": participant_count
                 })
-            print(f"  ✓ Saved {len(participants)} participants to CSV")
+            print(f"  ✓ Saved {len(participants)} participants to CSV (total: {participant_count})")
         else:
             # Group but no participants found
             csv_writer.writerow({
                 "chat_name": chat_name,
                 "chat_type": "group",
                 "participant_name": "N/A",
-                "participant_phone": "N/A"
+                "participant_phone": "N/A",
+                "participant_count": 0
             })
             print(f"  ! Warning: No participants found, saved placeholder")
 
@@ -372,16 +376,33 @@ def process_introduction_groups(driver, output_path):
     """Process introduction groups using DFS - check and process immediately"""
     processed_chats = set()
     total_processed = 0
+    no_new_chats_count = 0  # Track iterations with no new chats
+    max_no_new_iterations = 3  # Stop after this many iterations with no new chats
 
     print("\nScanning chats for introduction groups (DFS approach)...")
     print("=" * 60)
 
     pane_side = driver.find_element(by=By.CLASS_NAME, value=PANE_SIDE_DIV)
 
-    for iteration in range(MAX_ITERATIONS):
-        print(f"\nIteration {iteration + 1}/{MAX_ITERATIONS}")
+    iteration = 0
+    while iteration < MAX_ITERATIONS:
+        iteration += 1
+        print(f"\nIteration {iteration}")
 
         chat_elements = driver.find_elements(by=By.CLASS_NAME, value=CHAT_DIV)
+
+        # Get current visible chat names to detect if scrolling reveals new chats
+        current_visible_chats = set()
+        for elem in chat_elements:
+            try:
+                name = elem.text.strip()
+                if name:
+                    current_visible_chats.add(name)
+            except:
+                continue
+
+        # Track if we found any new chats in this iteration
+        found_new_chats = False
 
         for chat_element in chat_elements:
             try:
@@ -389,6 +410,9 @@ def process_introduction_groups(driver, output_path):
 
                 if not chat_name or chat_name in processed_chats:
                     continue
+
+                # Mark that we found a new chat
+                found_new_chats = True
 
                 # Skip Archive
                 if is_archive_chat(chat_name):
@@ -449,11 +473,29 @@ def process_introduction_groups(driver, output_path):
                 print(f"  Error processing chat: {e}")
                 continue
 
+        # Check if we found new chats in this iteration
+        if not found_new_chats:
+            no_new_chats_count += 1
+            print(f"  No new chats found in this iteration ({no_new_chats_count}/{max_no_new_iterations})")
+
+            if no_new_chats_count >= max_no_new_iterations:
+                print(f"\n✓ Reached end of chat list (no new chats after {max_no_new_iterations} iterations)")
+                break
+        else:
+            # Reset counter if we found new chats
+            no_new_chats_count = 0
+
         # Scroll down to reveal more chats
-        for _ in range(DOWN_COUNTER):
+        # Use a smaller number of DOWN keys and detect when we've reached the end
+        scroll_amount = 5
+        for _ in range(scroll_amount):
             pane_side.send_keys(Keys.DOWN)
 
         sleep(0.5)  # Small delay between iterations
+
+    print(f"\n{'=' * 60}")
+    print(f"Scan complete! Processed {total_processed} introduction groups")
+    print(f"{'=' * 60}")
 
     return total_processed
 
