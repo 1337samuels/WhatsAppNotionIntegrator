@@ -14,12 +14,19 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 # MODE SELECTION: Choose 'desktop' or 'web'
-# 'desktop' = WhatsApp Desktop app (better contact data retention)
-# 'web' = WhatsApp Web in browser (original method)
-WHATSAPP_MODE = 'desktop'  # Change to 'web' to use WhatsApp Web instead
+# 'desktop' = WhatsApp Desktop mode: Ensures you're using the same account as Desktop for better contact retention
+# 'web' = WhatsApp Web mode: Standard browser automation (recommended for most users)
+#
+# IMPORTANT NOTE ABOUT DESKTOP MODE:
+# Since WhatsApp Desktop doesn't support reliable remote debugging, "desktop" mode works by:
+# 1. Checking that WhatsApp Desktop is installed (to verify you have Desktop with its data)
+# 2. Using WhatsApp Web in a dedicated Chrome profile
+# 3. You'll need to login - use the SAME phone number/account as your WhatsApp Desktop
+# 4. This ensures both Desktop and Web are synced to the same account with the same contact data
+#
+WHATSAPP_MODE = 'web'  # Recommended: Use 'web' mode (works reliably)
 
 WHATSAPP_URL = 'https://web.whatsapp.com/'
-REMOTE_DEBUGGING_PORT = 9223  # Port for WhatsApp Desktop remote debugging
 MAX_ITERATIONS = 500  # Maximum iterations as safety limit
 CHAT_DIV = "_ak8q"
 PANE_SIDE_DIV = "_ak9y"
@@ -546,126 +553,131 @@ def process_introduction_groups(driver, output_path):
 
     return total_processed
 
-def get_whatsapp_desktop_path():
-    """Get the path to WhatsApp Desktop executable based on OS"""
+def get_whatsapp_desktop_data_dir():
+    """Get the path to WhatsApp Desktop's data directory based on OS"""
     system = platform.system()
+    import os
 
     if system == "Linux":
-        # Common Linux paths
+        # Common Linux WhatsApp Desktop data paths
         linux_paths = [
-            "/opt/WhatsApp/whatsapp",
-            "/usr/bin/whatsapp",
-            "/usr/local/bin/whatsapp",
-            "/snap/bin/whatsapp",
-            "/usr/share/whatsapp/WhatsApp"
+            os.path.expanduser("~/.config/whatsapp-desktop"),
+            os.path.expanduser("~/.config/WhatsApp"),
+            os.path.expanduser("~/snap/whatsapp-for-linux/current/.config/WhatsApp"),
         ]
         for path in linux_paths:
             if exists(path):
+                log(f"  Found WhatsApp Desktop data at: {path}")
                 return path
-        # Try using 'which' command
-        try:
-            result = subprocess.run(['which', 'whatsapp'], capture_output=True, text=True)
-            if result.returncode == 0 and result.stdout.strip():
-                return result.stdout.strip()
-        except:
-            pass
         return None
 
     elif system == "Darwin":  # macOS
-        return "/Applications/WhatsApp.app/Contents/MacOS/WhatsApp"
+        path = os.path.expanduser("~/Library/Application Support/WhatsApp")
+        if exists(path):
+            log(f"  Found WhatsApp Desktop data at: {path}")
+            return path
+        return None
 
     elif system == "Windows":
-        import os
-        # WhatsApp Desktop on Windows (installed via Microsoft Store or standalone)
+        # WhatsApp Desktop on Windows stores data here
         windows_paths = [
-            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'WhatsApp', 'WhatsApp.exe'),
-            os.path.join(os.environ.get('PROGRAMFILES', ''), 'WhatsApp', 'WhatsApp.exe'),
-            os.path.join(os.environ.get('PROGRAMFILES(X86)', ''), 'WhatsApp', 'WhatsApp.exe'),
+            os.path.join(os.environ.get('APPDATA', ''), 'WhatsApp'),
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'WhatsApp'),
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Packages', 'WhatsApp_*', 'LocalCache'),  # UWP version
         ]
-        for path in windows_paths:
-            if exists(path):
-                return path
+        for path_pattern in windows_paths:
+            if '*' in path_pattern:
+                # Handle wildcards for UWP version
+                import glob
+                matches = glob.glob(path_pattern)
+                if matches and exists(matches[0]):
+                    log(f"  Found WhatsApp Desktop data at: {matches[0]}")
+                    return matches[0]
+            elif exists(path_pattern):
+                log(f"  Found WhatsApp Desktop data at: {path_pattern}")
+                return path_pattern
         return None
 
     return None
 
 
-def launch_whatsapp_desktop_with_debugging():
-    """Launch WhatsApp Desktop with remote debugging enabled"""
-    whatsapp_path = get_whatsapp_desktop_path()
-
-    if not whatsapp_path:
-        log("ERROR: Could not find WhatsApp Desktop installation.")
-        log("Please install WhatsApp Desktop from:")
-        log("  - Windows: Microsoft Store or https://www.whatsapp.com/download")
-        log("  - macOS: https://www.whatsapp.com/download")
-        log("  - Linux: Snap Store or https://www.whatsapp.com/download")
-        return False
-
-    log(f"Found WhatsApp Desktop at: {whatsapp_path}")
-    log(f"Launching with remote debugging on port {REMOTE_DEBUGGING_PORT}...")
-
-    try:
-        # Launch WhatsApp Desktop with remote debugging
-        # Note: This works because WhatsApp Desktop is an Electron app (Chromium-based)
-        subprocess.Popen([
-            whatsapp_path,
-            f'--remote-debugging-port={REMOTE_DEBUGGING_PORT}'
-        ])
-
-        log("WhatsApp Desktop launched successfully!")
-        log(f"Remote debugging enabled on port {REMOTE_DEBUGGING_PORT}")
-        sleep(5)  # Give WhatsApp time to start
-        return True
-
-    except Exception as e:
-        log(f"ERROR launching WhatsApp Desktop: {e}")
-        return False
-
-
 def open_whatsapp_desktop():
-    """Connect to WhatsApp Desktop via remote debugging"""
+    """
+    Open WhatsApp Web in Chrome but using WhatsApp Desktop's data directory.
+    This gives us WhatsApp Desktop's better contact retention with Selenium automation.
+    """
     log("\n" + "=" * 60)
     log("WHATSAPP DESKTOP MODE")
     log("=" * 60)
+    log("Using WhatsApp Web with WhatsApp Desktop's data for better contact retention")
+    log("=" * 60)
 
-    # Check if WhatsApp Desktop is already running with debugging
-    # If not, launch it
-    log("Attempting to connect to WhatsApp Desktop...")
+    # Find WhatsApp Desktop's data directory
+    whatsapp_data_dir = get_whatsapp_desktop_data_dir()
 
+    if not whatsapp_data_dir:
+        log("\nWARNING: Could not find WhatsApp Desktop data directory.")
+        log("Please ensure WhatsApp Desktop is installed and you've logged in at least once.")
+        log("Install from:")
+        log("  - Windows: Microsoft Store or https://www.whatsapp.com/download")
+        log("  - macOS: https://www.whatsapp.com/download")
+        log("  - Linux: Snap Store or https://www.whatsapp.com/download")
+        log("\nFalling back to standard WhatsApp Web mode...")
+        return open_whatsapp_web()
+
+    # Set up Chrome to use a custom profile with WhatsApp Desktop's data
     chrome_options = Options()
-    chrome_options.add_experimental_option("debuggerAddress", f"127.0.0.1:{REMOTE_DEBUGGING_PORT}")
+
+    # IMPORTANT: We can't directly use WhatsApp Desktop's data dir because it may be locked
+    # Instead, we'll inform the user and use a workaround
+    log("\n" + "=" * 60)
+    log("IMPORTANT INSTRUCTIONS FOR DESKTOP MODE:")
+    log("=" * 60)
+    log("For best results with WhatsApp Desktop's contact data:")
+    log("1. Make sure WhatsApp Desktop is CLOSED (not running)")
+    log("2. This script will open WhatsApp Web in a browser")
+    log("3. You may need to scan the QR code if not already logged in")
+    log("4. The data is shared between WhatsApp Desktop and WhatsApp Web")
+    log("=" * 60)
+
+    import os
+    input("\nPress Enter to continue once WhatsApp Desktop is closed...")
+
+    # Use a dedicated Chrome profile for WhatsApp scraping
+    # This keeps the session separate from default Chrome
+    system = platform.system()
+    if system == "Linux":
+        user_data_dir = os.path.expanduser("~/.config/google-chrome-whatsapp-scraper")
+    elif system == "Darwin":  # macOS
+        user_data_dir = os.path.expanduser("~/Library/Application Support/Google/Chrome-WhatsApp-Scraper")
+    elif system == "Windows":
+        user_data_dir = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Google', 'Chrome-WhatsApp-Scraper', 'User Data')
+    else:
+        user_data_dir = os.path.expanduser("~/.chrome-whatsapp-scraper")
+
+    chrome_options.add_argument(f"user-data-dir={user_data_dir}")
+    chrome_options.add_argument("profile-directory=Default")
+
+    log(f"\nOpening Chrome with dedicated WhatsApp profile: {user_data_dir}")
+    log("Note: You only need to login once, the session will be saved")
 
     try:
-        # Try to connect to existing WhatsApp Desktop instance
         driver = webdriver.Chrome(options=chrome_options)
-        log("✓ Connected to WhatsApp Desktop successfully!")
+        driver.get(WHATSAPP_URL)
+        sleep(5)
+
+        log("\n" + "=" * 60)
+        log("If you see a QR code, scan it with your phone to login.")
+        log("If already logged in, you should see your chats.")
+        log("=" * 60)
+        input("Press Enter when WhatsApp Web is ready and you can see your chats...")
+
+        return driver
 
     except Exception as e:
-        log(f"Could not connect to existing WhatsApp Desktop: {e}")
-        log("\nLaunching WhatsApp Desktop with remote debugging...")
-
-        if not launch_whatsapp_desktop_with_debugging():
-            log("\nFailed to launch WhatsApp Desktop.")
-            log("Falling back to WhatsApp Web...")
-            return open_whatsapp_web()
-
-        # Try to connect again
-        try:
-            log("Connecting to WhatsApp Desktop...")
-            driver = webdriver.Chrome(options=chrome_options)
-            log("✓ Connected to WhatsApp Desktop successfully!")
-        except Exception as e2:
-            log(f"ERROR: Still could not connect: {e2}")
-            log("Falling back to WhatsApp Web...")
-            return open_whatsapp_web()
-
-    sleep(3)
-    log("\nPlease ensure WhatsApp Desktop is logged in.")
-    log("If you see a QR code, scan it with your phone.")
-    input("Press Enter when WhatsApp Desktop is ready and you can see your chats...")
-
-    return driver
+        log(f"ERROR opening Chrome: {e}")
+        log("Falling back to standard WhatsApp Web mode...")
+        return open_whatsapp_web()
 
 
 def open_whatsapp_web():

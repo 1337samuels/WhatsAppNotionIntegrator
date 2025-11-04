@@ -17,9 +17,18 @@ A Python tool to scrape WhatsApp "introduction groups" and export participant in
 - Ignores Archive and individual chats
 - Exports data to CSV format for easy analysis
 
-## Why WhatsApp Desktop?
+## Why WhatsApp Desktop vs Web?
 
-**WhatsApp Desktop maintains better contact information** compared to WhatsApp Web. If you've previously seen participants in a group, WhatsApp Desktop will remember their contact details even if they've left the group, while WhatsApp Web may not retain this information.
+**WhatsApp Desktop may display better contact information** for group participants. If you've found that WhatsApp Desktop shows participant names while WhatsApp Web shows only phone numbers, this tool provides a "Desktop mode" that:
+
+1. Verifies you have WhatsApp Desktop installed
+2. Uses a dedicated WhatsApp Web session
+3. Prompts you to log in with the **same account** as your WhatsApp Desktop
+4. Ensures both are synced to the same data
+
+**Important**: Since WhatsApp Desktop doesn't support reliable browser automation, both modes ultimately use WhatsApp Web with Selenium. The "Desktop mode" ensures you're using the same account/data as your Desktop installation.
+
+**Recommendation**: Start with **'web' mode** (default) - it's simpler and works reliably. Only use 'desktop' mode if you specifically need to verify account sync with WhatsApp Desktop.
 
 ## Requirements
 
@@ -78,11 +87,13 @@ Open `scrape_whatsapp_chats.py` and set the mode at the top of the file:
 
 ```python
 # MODE SELECTION: Choose 'desktop' or 'web'
-WHATSAPP_MODE = 'desktop'  # Use 'desktop' (recommended) or 'web'
+WHATSAPP_MODE = 'web'  # Recommended: Use 'web' mode (works reliably)
 ```
 
-- **'desktop'** - Uses WhatsApp Desktop app (better contact data retention)
-- **'web'** - Uses WhatsApp Web in Chrome browser (original method)
+- **'web'** (Recommended) - Standard WhatsApp Web automation in Chrome - works reliably
+- **'desktop'** - Verifies Desktop installation and uses dedicated profile to ensure same account sync
+
+**Note**: Both modes use WhatsApp Web with Selenium for automation. The difference is that 'desktop' mode checks for WhatsApp Desktop installation and uses a separate Chrome profile to ensure you're logged into the same account.
 
 ### Running the Scraper
 
@@ -92,8 +103,8 @@ python scrape_whatsapp_chats.py
 ```
 
 2. The script will:
-   - **Desktop Mode**: Launch or connect to WhatsApp Desktop with remote debugging
    - **Web Mode**: Open Chrome using your default profile (auto-login to WhatsApp Web)
+   - **Desktop Mode**: Verify Desktop is installed, then open dedicated Chrome profile (you'll need to login)
    - Wait for you to confirm WhatsApp is loaded and logged in
    - Scroll through all chats in the sidebar
    - Identify introduction groups by their naming pattern
@@ -137,10 +148,9 @@ Note: Each participant gets their own row with the total participant count for t
 
 You can modify these constants at the top of the script:
 
-- **`WHATSAPP_MODE`**: Choose between 'desktop' or 'web' (default: 'desktop')
-  - **'desktop'** - WhatsApp Desktop app (better contact retention)
-  - **'web'** - WhatsApp Web in Chrome browser
-- `REMOTE_DEBUGGING_PORT`: Port for WhatsApp Desktop debugging (default: 9223)
+- **`WHATSAPP_MODE`**: Choose between 'web' or 'desktop' (default: 'web')
+  - **'web'** (Recommended) - WhatsApp Web automation using default Chrome profile
+  - **'desktop'** - Verifies Desktop installation and uses dedicated Chrome profile for account sync
 - `MAX_ITERATIONS`: Maximum number of scroll iterations as a safety limit (default: 500)
   - The script will auto-stop when it detects no new chats, usually well before this limit
 - `OUTPUT_DIRECTORY`: Where to save output files (default: current directory)
@@ -151,22 +161,23 @@ You can modify these constants at the top of the script:
 
 ## How It Works
 
-### WhatsApp Desktop Mode (Recommended)
-
-The script uses **Electron remote debugging** to connect to WhatsApp Desktop:
-
-1. Launches WhatsApp Desktop with `--remote-debugging-port` flag (or connects to existing instance)
-2. Uses Selenium to connect to the debugging port
-3. Automates WhatsApp Desktop just like a web browser
-4. **Benefit**: WhatsApp Desktop maintains better contact data for participants who have previously been in groups
-
-### WhatsApp Web Mode
+### WhatsApp Web Mode (Recommended)
 
 The script opens Chrome with your default user profile:
 
 1. Opens Chrome with your saved profile (auto-login to WhatsApp Web)
 2. Uses Selenium for browser automation
-3. **Benefit**: Familiar web interface, easier to debug
+3. **Benefit**: Simple, reliable, auto-login if you're already signed in
+
+### WhatsApp Desktop Mode
+
+Since WhatsApp Desktop doesn't support reliable remote debugging automation:
+
+1. Verifies WhatsApp Desktop is installed on your system
+2. Opens WhatsApp Web in a **dedicated Chrome profile** (separate from your default)
+3. You'll need to scan QR code to login (only once - session is saved)
+4. **Important**: Login with the SAME phone number/account as your WhatsApp Desktop
+5. **Benefit**: Ensures account sync between Desktop and Web for consistent contact data
 
 ### DFS (Depth-First Search) Approach
 
@@ -211,10 +222,14 @@ The script writes data to the CSV file immediately after processing each group u
   - Make sure WhatsApp Desktop is installed
   - Check the installation paths in the script match your system
   - The script will automatically fall back to Web mode if Desktop isn't found
-- **Connection failed**:
-  - Try closing any running WhatsApp Desktop instances first
-  - The script will automatically launch it with debugging enabled
-  - Make sure port 9223 is not in use by another application
+- **Need to login every time**:
+  - Desktop mode uses a separate Chrome profile to avoid conflicts
+  - You only need to login once - the session is saved for future runs
+  - Make sure to login with the SAME account as your WhatsApp Desktop
+- **Contact data still not showing**:
+  - Ensure both WhatsApp Desktop and WhatsApp Web are logged into the same account
+  - Keep WhatsApp Desktop open and synced before running the scraper
+  - WhatsApp Web will sync the same contact data from your account
 
 ### Web Mode Issues
 
@@ -230,7 +245,20 @@ The script writes data to the CSV file immediately after processing each group u
 
 ### Switching Modes
 
-If one mode isn't working well, simply change `WHATSAPP_MODE` in the script and try the other mode:
+If one mode isn't working well, simply change `WHATSAPP_MODE` in the script:
 ```python
-WHATSAPP_MODE = 'web'  # Switch from 'desktop' to 'web' or vice versa
-``` 
+# Try web mode first (recommended):
+WHATSAPP_MODE = 'web'
+
+# Or use desktop mode if you need to ensure account sync:
+WHATSAPP_MODE = 'desktop'
+```
+
+### About Contact Data and WhatsApp Desktop
+
+If you're seeing better contact information in WhatsApp Desktop compared to WhatsApp Web:
+
+1. **Ensure Same Account**: Both Desktop and Web must be logged into the same WhatsApp account
+2. **Wait for Sync**: Keep WhatsApp Desktop running for a while to ensure full contact sync from your phone
+3. **Check Web**: After Desktop has synced, WhatsApp Web (logged into the same account) should also have the updated contact information
+4. **Reality Check**: WhatsApp Desktop and Web both pull data from the same WhatsApp servers. Any differences are usually due to sync delays or being logged into different accounts 
