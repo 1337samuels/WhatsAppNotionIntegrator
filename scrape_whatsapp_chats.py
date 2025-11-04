@@ -1,6 +1,8 @@
 from time import sleep
 import csv
 import logging
+import subprocess
+import platform
 from os.path import join, exists
 from datetime import datetime
 from selenium import webdriver
@@ -11,7 +13,13 @@ from selenium.common.exceptions import StaleElementReferenceException, NoSuchEle
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
+# MODE SELECTION: Choose 'desktop' or 'web'
+# 'desktop' = WhatsApp Desktop app (better contact data retention)
+# 'web' = WhatsApp Web in browser (original method)
+WHATSAPP_MODE = 'desktop'  # Change to 'web' to use WhatsApp Web instead
+
 WHATSAPP_URL = 'https://web.whatsapp.com/'
+REMOTE_DEBUGGING_PORT = 9223  # Port for WhatsApp Desktop remote debugging
 MAX_ITERATIONS = 500  # Maximum iterations as safety limit
 CHAT_DIV = "_ak8q"
 PANE_SIDE_DIV = "_ak9y"
@@ -538,8 +546,134 @@ def process_introduction_groups(driver, output_path):
 
     return total_processed
 
-def open_whatsapp():
+def get_whatsapp_desktop_path():
+    """Get the path to WhatsApp Desktop executable based on OS"""
+    system = platform.system()
+
+    if system == "Linux":
+        # Common Linux paths
+        linux_paths = [
+            "/opt/WhatsApp/whatsapp",
+            "/usr/bin/whatsapp",
+            "/usr/local/bin/whatsapp",
+            "/snap/bin/whatsapp",
+            "/usr/share/whatsapp/WhatsApp"
+        ]
+        for path in linux_paths:
+            if exists(path):
+                return path
+        # Try using 'which' command
+        try:
+            result = subprocess.run(['which', 'whatsapp'], capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except:
+            pass
+        return None
+
+    elif system == "Darwin":  # macOS
+        return "/Applications/WhatsApp.app/Contents/MacOS/WhatsApp"
+
+    elif system == "Windows":
+        import os
+        # WhatsApp Desktop on Windows (installed via Microsoft Store or standalone)
+        windows_paths = [
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'WhatsApp', 'WhatsApp.exe'),
+            os.path.join(os.environ.get('PROGRAMFILES', ''), 'WhatsApp', 'WhatsApp.exe'),
+            os.path.join(os.environ.get('PROGRAMFILES(X86)', ''), 'WhatsApp', 'WhatsApp.exe'),
+        ]
+        for path in windows_paths:
+            if exists(path):
+                return path
+        return None
+
+    return None
+
+
+def launch_whatsapp_desktop_with_debugging():
+    """Launch WhatsApp Desktop with remote debugging enabled"""
+    whatsapp_path = get_whatsapp_desktop_path()
+
+    if not whatsapp_path:
+        log("ERROR: Could not find WhatsApp Desktop installation.")
+        log("Please install WhatsApp Desktop from:")
+        log("  - Windows: Microsoft Store or https://www.whatsapp.com/download")
+        log("  - macOS: https://www.whatsapp.com/download")
+        log("  - Linux: Snap Store or https://www.whatsapp.com/download")
+        return False
+
+    log(f"Found WhatsApp Desktop at: {whatsapp_path}")
+    log(f"Launching with remote debugging on port {REMOTE_DEBUGGING_PORT}...")
+
+    try:
+        # Launch WhatsApp Desktop with remote debugging
+        # Note: This works because WhatsApp Desktop is an Electron app (Chromium-based)
+        subprocess.Popen([
+            whatsapp_path,
+            f'--remote-debugging-port={REMOTE_DEBUGGING_PORT}'
+        ])
+
+        log("WhatsApp Desktop launched successfully!")
+        log(f"Remote debugging enabled on port {REMOTE_DEBUGGING_PORT}")
+        sleep(5)  # Give WhatsApp time to start
+        return True
+
+    except Exception as e:
+        log(f"ERROR launching WhatsApp Desktop: {e}")
+        return False
+
+
+def open_whatsapp_desktop():
+    """Connect to WhatsApp Desktop via remote debugging"""
+    log("\n" + "=" * 60)
+    log("WHATSAPP DESKTOP MODE")
+    log("=" * 60)
+
+    # Check if WhatsApp Desktop is already running with debugging
+    # If not, launch it
+    log("Attempting to connect to WhatsApp Desktop...")
+
+    chrome_options = Options()
+    chrome_options.add_experimental_option("debuggerAddress", f"127.0.0.1:{REMOTE_DEBUGGING_PORT}")
+
+    try:
+        # Try to connect to existing WhatsApp Desktop instance
+        driver = webdriver.Chrome(options=chrome_options)
+        log("✓ Connected to WhatsApp Desktop successfully!")
+
+    except Exception as e:
+        log(f"Could not connect to existing WhatsApp Desktop: {e}")
+        log("\nLaunching WhatsApp Desktop with remote debugging...")
+
+        if not launch_whatsapp_desktop_with_debugging():
+            log("\nFailed to launch WhatsApp Desktop.")
+            log("Falling back to WhatsApp Web...")
+            return open_whatsapp_web()
+
+        # Try to connect again
+        try:
+            log("Connecting to WhatsApp Desktop...")
+            driver = webdriver.Chrome(options=chrome_options)
+            log("✓ Connected to WhatsApp Desktop successfully!")
+        except Exception as e2:
+            log(f"ERROR: Still could not connect: {e2}")
+            log("Falling back to WhatsApp Web...")
+            return open_whatsapp_web()
+
+    sleep(3)
+    log("\nPlease ensure WhatsApp Desktop is logged in.")
+    log("If you see a QR code, scan it with your phone.")
+    input("Press Enter when WhatsApp Desktop is ready and you can see your chats...")
+
+    return driver
+
+
+def open_whatsapp_web():
     """Open WhatsApp Web using default Chrome profile (auto-login)"""
+    log("\n" + "=" * 60)
+    log("WHATSAPP WEB MODE")
+    log("=" * 60)
+
     # Set up Chrome options to use default profile
     chrome_options = Options()
 
@@ -548,7 +682,6 @@ def open_whatsapp():
     # Linux: ~/.config/google-chrome/Default
     # macOS: ~/Library/Application Support/Google/Chrome/Default
     # Windows: %USERPROFILE%\AppData\Local\Google\Chrome\User Data\Default
-    import platform
     system = platform.system()
 
     if system == "Linux":
@@ -593,6 +726,14 @@ def open_whatsapp():
         input("Connect to WhatsappWeb by linking device. Press Enter when done.")
         return driver
 
+
+def open_whatsapp():
+    """Open WhatsApp based on configured mode (Desktop or Web)"""
+    if WHATSAPP_MODE.lower() == 'desktop':
+        return open_whatsapp_desktop()
+    else:
+        return open_whatsapp_web()
+
 def main():
     # Generate timestamped filenames for this run
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -608,6 +749,7 @@ def main():
     setup_logging(log_path)
     log("=" * 60)
     log("WhatsApp Introduction Group Scraper - Starting")
+    log(f"Mode: {WHATSAPP_MODE.upper()}")
     log(f"Timestamp: {timestamp}")
     log(f"Log file: {log_path}")
     log(f"CSV file: {output_path}")
@@ -618,6 +760,7 @@ def main():
     log("\n" + "=" * 60)
     log("INTRODUCTION GROUP SCRAPER")
     log("=" * 60)
+    log(f"Mode: WhatsApp {WHATSAPP_MODE.upper()}")
     log(f"Output file: {output_path}")
     log(f"Looking for groups with delimiters: {', '.join(INTRO_DELIMITERS)}")
     log("=" * 60)

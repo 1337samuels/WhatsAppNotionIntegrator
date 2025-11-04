@@ -1,10 +1,12 @@
 # WhatsAppNotionIntegrator
 
-A Python tool to scrape WhatsApp Web "introduction groups" and export participant information to CSV format.
+A Python tool to scrape WhatsApp "introduction groups" and export participant information to CSV format. Supports both **WhatsApp Desktop** (recommended) and **WhatsApp Web**.
 
 ## Features
 
-- Auto-login to WhatsApp Web using default Chrome profile (no QR scanning needed)
+- **🆕 WhatsApp Desktop Support**: Connect to WhatsApp Desktop app for better contact data retention
+- **WhatsApp Web Support**: Original method using Chrome browser
+- Auto-login with saved sessions (no repeated QR scanning)
 - Intelligently filters for "introduction groups" based on specific naming patterns
 - Depth-First Search (DFS) approach - processes groups immediately as found
 - Crash-resistant: Saves data immediately after each group is processed
@@ -15,11 +17,15 @@ A Python tool to scrape WhatsApp Web "introduction groups" and export participan
 - Ignores Archive and individual chats
 - Exports data to CSV format for easy analysis
 
+## Why WhatsApp Desktop?
+
+**WhatsApp Desktop maintains better contact information** compared to WhatsApp Web. If you've previously seen participants in a group, WhatsApp Desktop will remember their contact details even if they've left the group, while WhatsApp Web may not retain this information.
+
 ## Requirements
 
 - Python 3.x
 - Selenium
-- Chrome browser
+- Chrome browser (for Web mode) OR WhatsApp Desktop app (for Desktop mode)
 - ChromeDriver (compatible with your Chrome version)
 
 ## Installation
@@ -39,18 +45,56 @@ Introduction groups are WhatsApp groups with names that follow a specific patter
 
 These patterns are defined in `chat_parser.py` and indicate groups created for introducing people to each other.
 
-## Usage
+## Installation & Setup
+
+### For WhatsApp Desktop Mode (Recommended)
+
+1. Install WhatsApp Desktop on your system:
+   - **Windows**: Download from [Microsoft Store](https://www.microsoft.com/store/apps/whatsapp) or [whatsapp.com/download](https://www.whatsapp.com/download)
+   - **macOS**: Download from [whatsapp.com/download](https://www.whatsapp.com/download)
+   - **Linux**: Install from Snap Store (`snap install whatsapp-for-linux`) or download from [whatsapp.com/download](https://www.whatsapp.com/download)
+
+2. Log into WhatsApp Desktop and ensure it's working
+
+3. Install Python dependencies:
+```bash
+pip install selenium
+```
+
+### For WhatsApp Web Mode
 
 1. Make sure you're logged into WhatsApp Web in your default Chrome browser profile
 
-2. Run the script:
+2. Install Python dependencies:
+```bash
+pip install selenium
+```
+
+## Usage
+
+### Choosing Your Mode
+
+Open `scrape_whatsapp_chats.py` and set the mode at the top of the file:
+
+```python
+# MODE SELECTION: Choose 'desktop' or 'web'
+WHATSAPP_MODE = 'desktop'  # Use 'desktop' (recommended) or 'web'
+```
+
+- **'desktop'** - Uses WhatsApp Desktop app (better contact data retention)
+- **'web'** - Uses WhatsApp Web in Chrome browser (original method)
+
+### Running the Scraper
+
+1. Run the script:
 ```bash
 python scrape_whatsapp_chats.py
 ```
 
-3. The script will:
-   - Open Chrome using your default profile (auto-login to WhatsApp Web)
-   - Wait for you to confirm WhatsApp is loaded
+2. The script will:
+   - **Desktop Mode**: Launch or connect to WhatsApp Desktop with remote debugging
+   - **Web Mode**: Open Chrome using your default profile (auto-login to WhatsApp Web)
+   - Wait for you to confirm WhatsApp is loaded and logged in
    - Scroll through all chats in the sidebar
    - Identify introduction groups by their naming pattern
    - **Immediately** click into each matching group
@@ -58,7 +102,7 @@ python scrape_whatsapp_chats.py
    - **Save immediately** to CSV (crash-resistant)
    - Continue to the next introduction group
 
-4. The script creates two timestamped files in the output directory (each run creates unique files):
+3. The script creates two timestamped files in the output directory (each run creates unique files):
    - `whatsapp_chats_YYYYMMDD_HHMMSS.csv` - All participant data (saved incrementally)
    - `whatsapp_scraper_YYYYMMDD_HHMMSS.log` - Complete log of all operations (for debugging)
    - Example: `whatsapp_chats_20251102_143055.csv` and `whatsapp_scraper_20251102_143055.log`
@@ -93,6 +137,10 @@ Note: Each participant gets their own row with the total participant count for t
 
 You can modify these constants at the top of the script:
 
+- **`WHATSAPP_MODE`**: Choose between 'desktop' or 'web' (default: 'desktop')
+  - **'desktop'** - WhatsApp Desktop app (better contact retention)
+  - **'web'** - WhatsApp Web in Chrome browser
+- `REMOTE_DEBUGGING_PORT`: Port for WhatsApp Desktop debugging (default: 9223)
 - `MAX_ITERATIONS`: Maximum number of scroll iterations as a safety limit (default: 500)
   - The script will auto-stop when it detects no new chats, usually well before this limit
 - `OUTPUT_DIRECTORY`: Where to save output files (default: current directory)
@@ -102,6 +150,23 @@ You can modify these constants at the top of the script:
 - `INTRO_DELIMITERS`: Delimiters that identify introduction groups (default: `["//", "/", "<>", "x"]`)
 
 ## How It Works
+
+### WhatsApp Desktop Mode (Recommended)
+
+The script uses **Electron remote debugging** to connect to WhatsApp Desktop:
+
+1. Launches WhatsApp Desktop with `--remote-debugging-port` flag (or connects to existing instance)
+2. Uses Selenium to connect to the debugging port
+3. Automates WhatsApp Desktop just like a web browser
+4. **Benefit**: WhatsApp Desktop maintains better contact data for participants who have previously been in groups
+
+### WhatsApp Web Mode
+
+The script opens Chrome with your default user profile:
+
+1. Opens Chrome with your saved profile (auto-login to WhatsApp Web)
+2. Uses Selenium for browser automation
+3. **Benefit**: Familiar web interface, easier to debug
 
 ### DFS (Depth-First Search) Approach
 
@@ -122,12 +187,11 @@ The script writes data to the CSV file immediately after processing each group u
 - Each run creates new timestamped files, so previous runs are never overwritten
 - Can safely run multiple times to collect data from different time periods
 
-### Chrome Profile Auto-Login
+### Auto-Login
 
-The script opens Chrome with your default user profile, which means:
-
-- If you're already logged into WhatsApp Web in Chrome, you'll stay logged in
-- No need to scan QR codes every time
+- **Desktop Mode**: Connects to your already-logged-in WhatsApp Desktop
+- **Web Mode**: Opens Chrome with your default user profile (stays logged in)
+- No need to scan QR codes every time (unless session expires)
 - Faster startup and more convenient
 
 ## Notes
@@ -141,8 +205,32 @@ The script opens Chrome with your default user profile, which means:
 
 ## Troubleshooting
 
+### Desktop Mode Issues
+
+- **WhatsApp Desktop not found**:
+  - Make sure WhatsApp Desktop is installed
+  - Check the installation paths in the script match your system
+  - The script will automatically fall back to Web mode if Desktop isn't found
+- **Connection failed**:
+  - Try closing any running WhatsApp Desktop instances first
+  - The script will automatically launch it with debugging enabled
+  - Make sure port 9223 is not in use by another application
+
+### Web Mode Issues
+
 - **Chrome profile error**: If Chrome can't open with your profile (already open), close Chrome and try again, or the script will fallback to a fresh profile
-- **Can't find participants**: WhatsApp Web's structure may have changed. The script uses multiple fallback strategies
+- **Session expired**: You may need to scan the QR code again if your session has expired
+
+### General Issues
+
+- **Can't find participants**: WhatsApp's structure may have changed. The script uses multiple fallback strategies
 - **Script stops early**: The script auto-detects when it has reached the end of chats. If you have many chats, it should process them all
 - **StaleElementReferenceException**: Expected and handled automatically - occurs when the page updates while scrolling
-- **No introduction groups found**: Check that your groups have the correct naming pattern with delimiters: `//`, `/`, `<>`, or `x` 
+- **No introduction groups found**: Check that your groups have the correct naming pattern with delimiters: `//`, `/`, `<>`, or `x`
+
+### Switching Modes
+
+If one mode isn't working well, simply change `WHATSAPP_MODE` in the script and try the other mode:
+```python
+WHATSAPP_MODE = 'web'  # Switch from 'desktop' to 'web' or vice versa
+``` 
