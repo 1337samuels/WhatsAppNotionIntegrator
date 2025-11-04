@@ -3,6 +3,7 @@ import csv
 import logging
 import subprocess
 import platform
+import os
 from os.path import join, exists
 from datetime import datetime
 from selenium import webdriver
@@ -13,18 +14,28 @@ from selenium.common.exceptions import StaleElementReferenceException, NoSuchEle
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
+# Try to import desktop reader (for desktop mode)
+try:
+    from whatsapp_desktop_reader import extract_contacts_from_desktop, get_whatsapp_desktop_indexeddb_path
+    HAS_DESKTOP_READER = True
+except ImportError:
+    HAS_DESKTOP_READER = False
+
 # MODE SELECTION: Choose 'desktop' or 'web'
-# 'desktop' = WhatsApp Desktop mode: Ensures you're using the same account as Desktop for better contact retention
-# 'web' = WhatsApp Web mode: Standard browser automation (recommended for most users)
 #
-# IMPORTANT NOTE ABOUT DESKTOP MODE:
-# Since WhatsApp Desktop doesn't support reliable remote debugging, "desktop" mode works by:
-# 1. Checking that WhatsApp Desktop is installed (to verify you have Desktop with its data)
-# 2. Using WhatsApp Web in a dedicated Chrome profile
-# 3. You'll need to login - use the SAME phone number/account as your WhatsApp Desktop
-# 4. This ensures both Desktop and Web are synced to the same account with the same contact data
+# IMPORTANT: WhatsApp Desktop stores LOCAL CACHE of participant data that WhatsApp Web doesn't have!
+# If you've left groups, Desktop still shows participant names while Web shows phone numbers.
 #
-WHATSAPP_MODE = 'web'  # Recommended: Use 'web' mode (works reliably)
+# 'desktop' = Extract data from WhatsApp Desktop's local database (BEST for participant names)
+#             Requires: pip install dfindexeddb
+#             Requires: WhatsApp Desktop to be CLOSED while extracting
+#
+# 'web' = Use WhatsApp Web browser automation (SIMPLER but may miss participant names)
+#         This is the original method that works reliably but won't have Desktop's local cache
+#
+# RECOMMENDATION: If you need participant names from groups you've left, use 'desktop' mode
+#
+WHATSAPP_MODE = 'desktop'  # Change to 'web' for simpler operation
 
 WHATSAPP_URL = 'https://web.whatsapp.com/'
 MAX_ITERATIONS = 500  # Maximum iterations as safety limit
@@ -601,83 +612,83 @@ def get_whatsapp_desktop_data_dir():
     return None
 
 
-def open_whatsapp_desktop():
+def extract_desktop_contacts():
     """
-    Open WhatsApp Web in Chrome but using WhatsApp Desktop's data directory.
-    This gives us WhatsApp Desktop's better contact retention with Selenium automation.
+    Extract contact/participant data from WhatsApp Desktop's local database.
+    This gives us the cached participant info that Web doesn't have.
     """
     log("\n" + "=" * 60)
-    log("WHATSAPP DESKTOP MODE")
-    log("=" * 60)
-    log("Using WhatsApp Web with WhatsApp Desktop's data for better contact retention")
+    log("WHATSAPP DESKTOP MODE - EXTRACTING LOCAL DATA")
     log("=" * 60)
 
-    # Find WhatsApp Desktop's data directory
-    whatsapp_data_dir = get_whatsapp_desktop_data_dir()
+    if not HAS_DESKTOP_READER:
+        log("ERROR: whatsapp_desktop_reader module not found!")
+        log("Make sure whatsapp_desktop_reader.py is in the same directory.")
+        return None
 
-    if not whatsapp_data_dir:
-        log("\nWARNING: Could not find WhatsApp Desktop data directory.")
-        log("Please ensure WhatsApp Desktop is installed and you've logged in at least once.")
-        log("Install from:")
+    # Check if Desktop database exists
+    db_path = get_whatsapp_desktop_indexeddb_path()
+    if not db_path:
+        log("ERROR: WhatsApp Desktop database not found!")
+        log("Please install WhatsApp Desktop from:")
         log("  - Windows: Microsoft Store or https://www.whatsapp.com/download")
         log("  - macOS: https://www.whatsapp.com/download")
         log("  - Linux: Snap Store or https://www.whatsapp.com/download")
-        log("\nFalling back to standard WhatsApp Web mode...")
-        return open_whatsapp_web()
+        log("\nFalling back to Web mode...")
+        return None
 
-    # Set up Chrome to use a custom profile with WhatsApp Desktop's data
-    chrome_options = Options()
-
-    # IMPORTANT: We can't directly use WhatsApp Desktop's data dir because it may be locked
-    # Instead, we'll inform the user and use a workaround
+    log(f"Found WhatsApp Desktop database at: {db_path}")
     log("\n" + "=" * 60)
-    log("IMPORTANT INSTRUCTIONS FOR DESKTOP MODE:")
+    log("IMPORTANT: WhatsApp Desktop must be CLOSED to read the database!")
     log("=" * 60)
-    log("For best results with WhatsApp Desktop's contact data:")
-    log("1. Make sure WhatsApp Desktop is CLOSED (not running)")
-    log("2. This script will open WhatsApp Web in a browser")
-    log("3. You may need to scan the QR code if not already logged in")
-    log("4. The data is shared between WhatsApp Desktop and WhatsApp Web")
-    log("=" * 60)
+    log("Please close WhatsApp Desktop now if it's running.")
+    input("Press Enter once WhatsApp Desktop is closed...")
 
-    import os
-    input("\nPress Enter to continue once WhatsApp Desktop is closed...")
-
-    # Use a dedicated Chrome profile for WhatsApp scraping
-    # This keeps the session separate from default Chrome
-    system = platform.system()
-    if system == "Linux":
-        user_data_dir = os.path.expanduser("~/.config/google-chrome-whatsapp-scraper")
-    elif system == "Darwin":  # macOS
-        user_data_dir = os.path.expanduser("~/Library/Application Support/Google/Chrome-WhatsApp-Scraper")
-    elif system == "Windows":
-        user_data_dir = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Google', 'Chrome-WhatsApp-Scraper', 'User Data')
-    else:
-        user_data_dir = os.path.expanduser("~/.chrome-whatsapp-scraper")
-
-    chrome_options.add_argument(f"user-data-dir={user_data_dir}")
-    chrome_options.add_argument("profile-directory=Default")
-
-    log(f"\nOpening Chrome with dedicated WhatsApp profile: {user_data_dir}")
-    log("Note: You only need to login once, the session will be saved")
+    log("\nExtracting data from WhatsApp Desktop's local cache...")
+    log("This may take a moment...")
 
     try:
-        driver = webdriver.Chrome(options=chrome_options)
-        driver.get(WHATSAPP_URL)
-        sleep(5)
-
-        log("\n" + "=" * 60)
-        log("If you see a QR code, scan it with your phone to login.")
-        log("If already logged in, you should see your chats.")
-        log("=" * 60)
-        input("Press Enter when WhatsApp Web is ready and you can see your chats...")
-
-        return driver
-
+        contacts = extract_contacts_from_desktop()
+        if contacts:
+            log(f"✓ Successfully extracted {len(contacts)} contacts from Desktop")
+            return contacts
+        else:
+            log("! No contacts extracted from Desktop")
+            log("This might be normal if you haven't used Desktop much.")
+            return {}
     except Exception as e:
-        log(f"ERROR opening Chrome: {e}")
-        log("Falling back to standard WhatsApp Web mode...")
-        return open_whatsapp_web()
+        log(f"ERROR extracting Desktop data: {e}")
+        import traceback
+        traceback.print_exc()
+        return {}
+
+
+def open_whatsapp_desktop():
+    """
+    Desktop mode: Extract data from WhatsApp Desktop's local database,
+    then open WhatsApp Web for scraping with enriched data.
+    """
+    # First, try to extract Desktop's local data
+    desktop_contacts = extract_desktop_contacts()
+
+    # Then open WhatsApp Web for scraping
+    log("\n" + "=" * 60)
+    log("Opening WhatsApp Web for scraping...")
+    log("=" * 60)
+
+    # Use standard web mode for the actual scraping
+    driver = open_whatsapp_web()
+
+    # Store desktop contacts in driver for later use
+    if desktop_contacts:
+        driver.desktop_contacts = desktop_contacts
+        log(f"\n✓ Desktop data loaded: {len(desktop_contacts)} contacts available")
+        log("Participant names will be enriched with Desktop data where available")
+    else:
+        driver.desktop_contacts = {}
+        log("\n! No Desktop data available - using Web data only")
+
+    return driver
 
 
 def open_whatsapp_web():
@@ -702,7 +713,6 @@ def open_whatsapp_web():
         from os.path import expanduser
         user_data_dir = expanduser("~/Library/Application Support/Google/Chrome")
     elif system == "Windows":
-        import os
         user_data_dir = os.path.join(os.environ['USERPROFILE'], 'AppData', 'Local', 'Google', 'Chrome', 'User Data')
     else:
         log(f"Warning: Unknown system {system}, using Chrome without default profile")
@@ -710,6 +720,7 @@ def open_whatsapp_web():
         driver.get(WHATSAPP_URL)
         sleep(2)
         input("Connect to WhatsappWeb by linking device. Press Enter when done.")
+        driver.desktop_contacts = {}  # Initialize for consistency
         return driver
 
     chrome_options.add_argument(f"user-data-dir={user_data_dir}")
@@ -728,6 +739,8 @@ def open_whatsapp_web():
         log("If you're already logged in, you should see your chats.")
         input("Press Enter when WhatsApp Web is ready and you can see your chats...")
 
+        # Initialize desktop_contacts for consistency
+        driver.desktop_contacts = {}
         return driver
     except Exception as e:
         log(f"Error opening Chrome with profile: {e}")
@@ -736,6 +749,7 @@ def open_whatsapp_web():
         driver.get(WHATSAPP_URL)
         sleep(2)
         input("Connect to WhatsappWeb by linking device. Press Enter when done.")
+        driver.desktop_contacts = {}  # Initialize for consistency
         return driver
 
 
