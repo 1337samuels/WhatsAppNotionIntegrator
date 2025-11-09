@@ -25,19 +25,20 @@ class Intros:
         self.notion = Client(auth=NOTION_SECRET)
         self.crm_cache = {}  # Cache for CRM search results
 
-        # Validate that the Notion client has the query method
-        if not hasattr(self.notion.databases, 'query'):
-            print("\n" + "="*60)
-            print("ERROR: Your Notion client doesn't have the 'databases.query()' method!")
-            print("="*60)
-            print("\nThis usually means you have the wrong library installed.")
-            print("\nPlease run the diagnostic script to identify the issue:")
-            print("  python diagnose_notion.py")
-            print("\nOr try reinstalling the correct library:")
-            print("  pip uninstall notion-py notion")
-            print("  pip install notion-client")
-            print("="*60)
-            raise AttributeError("databases.query method not found in Notion client")
+        # Get the data_source ID from the CRM database
+        # In the new Notion API, we need to query data_sources, not databases
+        print("Retrieving CRM data source ID...")
+        try:
+            db_info = self.notion.databases.retrieve(database_id=CRM_DB_ID)
+            self.crm_data_source_id = db_info['data_sources'][0]['id']
+            print(f"✓ CRM data source ID: {self.crm_data_source_id}")
+        except Exception as e:
+            print(f"✗ Error retrieving CRM database info: {e}")
+            print("\nMake sure:")
+            print("  1. CRM_DB_ID is set correctly")
+            print("  2. Your integration has access to the CRM database")
+            print("  3. NOTION_SECRET is valid")
+            raise
 
     def _search_crm_contacts(self, search_name):
         """
@@ -49,16 +50,14 @@ class Intros:
             return self.crm_cache[search_name]
 
         try:
-            # Query the CRM database using the correct Notion API syntax
-            # Use **{...} to unpack parameters as per Notion SDK requirements
-            response = self.notion.databases.query(
-                **{
-                    "database_id": CRM_DB_ID,
-                    "filter": {
-                        "property": "Contact",
-                        "title": {
-                            "contains": search_name
-                        }
+            # Query the CRM data source using the new Notion API
+            # In the new API, we use data_sources.query instead of databases.query
+            response = self.notion.data_sources.query(
+                self.crm_data_source_id,
+                filter={
+                    "property": "Contact",
+                    "title": {
+                        "contains": search_name
                     }
                 }
             )
@@ -80,11 +79,6 @@ class Intros:
             self.crm_cache[search_name] = contacts
             return contacts
 
-        except AttributeError as e:
-            print(f"Error: Notion client method not found. Please ensure you have 'notion-client' installed:")
-            print(f"  pip install notion-client")
-            print(f"  Error details: {e}")
-            return []
         except Exception as e:
             print(f"Error searching CRM for '{search_name}': {e}")
             import traceback

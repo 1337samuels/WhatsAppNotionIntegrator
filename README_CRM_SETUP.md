@@ -75,30 +75,49 @@ Also update the CSV file path in the `main()` function:
 csv_path = "whatsapp_chats.csv"  # Path to your CSV file
 ```
 
+## How It Works
+
+The script uses the new Notion API pattern:
+
+1. **Retrieve Database**: Gets the database info to extract the data_source ID
+   ```python
+   db_info = notion.databases.retrieve(database_id=CRM_DB_ID)
+   crm_data_source_id = db_info['data_sources'][0]['id']
+   ```
+
+2. **Query Data Source**: Uses the data_source ID to search for contacts
+   ```python
+   response = notion.data_sources.query(
+       crm_data_source_id,
+       filter={
+           "property": "Contact",
+           "title": {"contains": search_name}
+       }
+   )
+   ```
+
 ## Troubleshooting
 
-### Error: "DatabasesEndpoint object has no attribute 'query'"
+### Error: "Could not find database" or "object is not subscriptable"
 
-This means you might have the wrong library installed. Run:
+Make sure you've shared the database with your integration (step 3 above).
+
+### Error: "'data_sources'" or "object has no attribute 'data_sources'"
+
+Your notion-client library might be outdated. Update it:
+
+```bash
+pip install --upgrade notion-client
+```
+
+### Error: "object has no attribute 'databases'"
+
+Your integration token might be wrong or you need to reinstall the library:
 
 ```bash
 pip uninstall notion-py notion
 pip install notion-client
 ```
-
-Then verify:
-
-```bash
-python -c "from notion_client import Client; print('OK')"
-```
-
-### Error: "object has no attribute 'databases'"
-
-Your integration token might be wrong or you need to reinstall the library.
-
-### Error: "Could not find database"
-
-Make sure you've shared the database with your integration (step 3 above).
 
 ## Usage
 
