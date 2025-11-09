@@ -166,79 +166,77 @@ class Intros:
     def _create_crm_contact(self, name):
         """
         Create a new contact in the CRM database.
-        Prompts user for the full name and creates the contact.
-        If user declines, offers to create a spelling variant mapping.
-        Returns the contact ID or None if creation fails.
+        Presents 3 options: skip, add spelling variant, or create new contact.
+        Returns the contact ID or None if creation fails/skipped.
         """
         print(f"\n{'='*60}")
         print(f"Contact '{name}' not found in CRM")
         print(f"{'='*60}")
+        print("\nWhat would you like to do?")
+        print("  1. Skip (don't link to any contact)")
+        print("  2. Add spelling variant mapping (contact exists with different spelling)")
+        print("  3. Create new CRM contact")
 
         while True:
-            add_contact = input("Do you want to add this contact to the CRM? (y/n): ").strip().lower()
-            if add_contact in ['y', 'yes', 'n', 'no']:
+            choice = input("\nSelect option (1/2/3): ").strip()
+            if choice in ['1', '2', '3']:
                 break
-            print("Please enter 'y' or 'n'")
+            print("Please enter 1, 2, or 3")
 
-        if add_contact in ['n', 'no']:
-            print("Skipping CRM contact creation")
-
-            # Offer to add a spelling variant mapping
-            print("\nThe contact might exist with a different spelling.")
-            while True:
-                add_variant = input("Do you want to add a spelling variant mapping? (y/n): ").strip().lower()
-                if add_variant in ['y', 'yes', 'n', 'no']:
-                    break
-                print("Please enter 'y' or 'n'")
-
-            if add_variant in ['y', 'yes']:
-                return self._create_spelling_variant_and_retry(name)
-
+        if choice == '1':
+            # Skip
+            print("Skipping contact")
             return None
 
-        # Prompt for full name
-        print(f"\nEnter the full name for this contact (or press Enter to use '{name}'):")
-        full_name = input("> ").strip()
-        if not full_name:
-            full_name = name
+        elif choice == '2':
+            # Add spelling variant
+            return self._create_spelling_variant_and_retry(name)
 
-        print(f"\nCreating CRM contact: {full_name}")
+        else:  # choice == '3'
+            # Create new CRM contact
+            # Prompt for full name
+            print(f"\nEnter the full name for this contact (or press Enter to use '{name}'):")
+            full_name = input("> ").strip()
+            if not full_name:
+                full_name = name
 
-        try:
-            # Create the page in CRM database
-            response = self.notion.pages.create(
-                parent={"database_id": CRM_DB_ID},
-                properties={
-                    "Contact": {
-                        "title": [
-                            {
-                                "text": {
-                                    "content": full_name
+            print(f"\nCreating CRM contact: {full_name}")
+
+            try:
+                # Create the page in CRM database
+                response = self.notion.pages.create(
+                    parent={"database_id": CRM_DB_ID},
+                    properties={
+                        "Contact": {
+                            "title": [
+                                {
+                                    "text": {
+                                        "content": full_name
+                                    }
                                 }
-                            }
-                        ]
+                            ]
+                        }
                     }
-                }
-            )
+                )
 
-            contact_id = response["id"]
-            print(f"✓ Created CRM contact: {full_name}")
+                contact_id = response["id"]
+                print(f"✓ Created CRM contact: {full_name}")
 
-            # Add to cache
-            if name not in self.crm_cache:
-                self.crm_cache[name] = []
-            self.crm_cache[name].append({
-                "id": contact_id,
-                "name": full_name
-            })
+                # Add to cache
+                if name not in self.crm_cache:
+                    self.crm_cache[name] = []
+                self.crm_cache[name].append({
+                    "id": contact_id,
+                    "name": full_name
+                })
 
-            return contact_id
+                return contact_id
 
-        except Exception as e:
-            print(f"✗ Error creating CRM contact: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
+            except Exception as e:
+                print(f"✗ Error creating CRM contact: {e}")
+                import traceback
+                traceback.print_exc()
+                return None
 
     def _create_spelling_variant_and_retry(self, misspelled_name):
         """
