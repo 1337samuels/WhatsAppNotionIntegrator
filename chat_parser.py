@@ -282,31 +282,13 @@ class Intros:
             print(f"\n--- Resolving Second Side: {second_side_display} ---")
             second_side_contact_ids = self._resolve_side_to_contacts(second_side)
 
-            # Build properties for the Notion page
+            # Build properties for the Notion page - only 3 fields
             properties = {
                 "Connection": {
                     "title": [
                         {
                             "text": {
                                 "content": connection_name
-                            }
-                        }
-                    ]
-                },
-                "First Side": {
-                    "rich_text": [
-                        {
-                            "text": {
-                                "content": str(first_side_display)
-                            }
-                        }
-                    ]
-                },
-                "Second Side": {
-                    "rich_text": [
-                        {
-                            "text": {
-                                "content": str(second_side_display)
                             }
                         }
                     ]

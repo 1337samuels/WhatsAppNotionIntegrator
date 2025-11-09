@@ -52,10 +52,8 @@ Make sure your CRM database has:
 
 ### 6. Set Up Your Intros Database
 
-Make sure your Intros database has:
-- **Connection** (Title property)
-- **First Side** (Rich text property)
-- **Second Side** (Rich text property)
+Make sure your Intros database has these 3 properties:
+- **Connection** (Title property) - Contains the connection name (e.g., "John & Beth")
 - **First Side Contact** (Relation property → linked to your CRM database)
 - **Second Side Contact** (Relation property → linked to your CRM database)
 
