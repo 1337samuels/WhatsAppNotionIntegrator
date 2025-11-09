@@ -367,15 +367,22 @@ class Intros:
         """
         Prompt the user to select from multiple contact matches.
         Returns the selected contact or None if user skips.
+        Returns 'CREATE_NEW' string if user wants to create a new contact.
         """
         print(f"\nMultiple contacts found for '{search_name}':")
         for i, contact in enumerate(contacts, 1):
             print(f"  {i}. {contact['name']}")
         print(f"  0. Skip (don't link to any contact)")
+        print(f"  n. Create new contact")
 
         while True:
             try:
-                choice = input(f"Select which contact to use (0-{len(contacts)}): ").strip()
+                choice = input(f"Select which contact to use (0-{len(contacts)}, or 'n' for new): ").strip().lower()
+
+                # Check if user wants to create new contact
+                if choice in ['n', 'new', 'c', 'create']:
+                    return 'CREATE_NEW'
+
                 choice_num = int(choice)
 
                 if choice_num == 0:
@@ -386,9 +393,12 @@ class Intros:
                     print(f"  Selected: {selected['name']}")
                     return selected
                 else:
-                    print(f"  Invalid choice. Please enter a number between 0 and {len(contacts)}")
+                    print(f"  Invalid choice. Please enter a number between 0 and {len(contacts)}, or 'n' for new")
             except ValueError:
-                print(f"  Invalid input. Please enter a number between 0 and {len(contacts)}")
+                # Not a number, check if it's a create command
+                if choice in ['n', 'new', 'c', 'create']:
+                    return 'CREATE_NEW'
+                print(f"  Invalid input. Please enter a number between 0 and {len(contacts)}, or 'n' for new")
             except KeyboardInterrupt:
                 print("\n  Skipping contact selection")
                 return None
@@ -445,7 +455,10 @@ class Intros:
             # Multiple matches - prompt user to select
             print(f"\nFound {len(all_matches)} contact(s) for Hebrew name '{name}':")
             selected_contact = self._prompt_user_selection(name, all_matches)
-            if selected_contact:
+            if selected_contact == 'CREATE_NEW':
+                # User wants to create a new contact
+                return self._create_crm_contact(name)
+            elif selected_contact:
                 return selected_contact['id']
             else:
                 return None
@@ -476,7 +489,10 @@ class Intros:
 
             # Multiple matches - prompt user to select
             selected_contact = self._prompt_user_selection(name, standalone_matches)
-            if selected_contact:
+            if selected_contact == 'CREATE_NEW':
+                # User wants to create a new contact
+                return self._create_crm_contact(name)
+            elif selected_contact:
                 return selected_contact['id']
             else:
                 return None
