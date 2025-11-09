@@ -105,6 +105,19 @@ class Intros:
             print("  2. Your integration has access to the Translations database")
             raise
 
+        # Get the data_source ID from the Intros database for duplicate checking
+        print("Retrieving Intros data source ID...")
+        try:
+            db_info = self.notion.databases.retrieve(database_id=TEMP_DB_ID)
+            self.intros_data_source_id = db_info['data_sources'][0]['id']
+            print(f"✓ Intros data source ID: {self.intros_data_source_id}")
+        except Exception as e:
+            print(f"✗ Error retrieving Intros database info: {e}")
+            print("\nMake sure:")
+            print("  1. TEMP_DB_ID is set correctly")
+            print("  2. Your integration has access to the Intros database")
+            raise
+
     def _search_crm_contacts(self, search_name):
         """
         Search the CRM database for contacts containing the given name.
@@ -149,6 +162,70 @@ class Intros:
             import traceback
             traceback.print_exc()
             return []
+
+    def _create_crm_contact(self, name):
+        """
+        Create a new contact in the CRM database.
+        Prompts user for the full name and creates the contact.
+        Returns the contact ID or None if creation fails.
+        """
+        print(f"\n{'='*60}")
+        print(f"Contact '{name}' not found in CRM")
+        print(f"{'='*60}")
+
+        while True:
+            add_contact = input("Do you want to add this contact to the CRM? (y/n): ").strip().lower()
+            if add_contact in ['y', 'yes', 'n', 'no']:
+                break
+            print("Please enter 'y' or 'n'")
+
+        if add_contact in ['n', 'no']:
+            print("Skipping CRM contact creation")
+            return None
+
+        # Prompt for full name
+        print(f"\nEnter the full name for this contact (or press Enter to use '{name}'):")
+        full_name = input("> ").strip()
+        if not full_name:
+            full_name = name
+
+        print(f"\nCreating CRM contact: {full_name}")
+
+        try:
+            # Create the page in CRM database
+            response = self.notion.pages.create(
+                parent={"database_id": CRM_DB_ID},
+                properties={
+                    "Contact": {
+                        "title": [
+                            {
+                                "text": {
+                                    "content": full_name
+                                }
+                            }
+                        ]
+                    }
+                }
+            )
+
+            contact_id = response["id"]
+            print(f"✓ Created CRM contact: {full_name}")
+
+            # Add to cache
+            if name not in self.crm_cache:
+                self.crm_cache[name] = []
+            self.crm_cache[name].append({
+                "id": contact_id,
+                "name": full_name
+            })
+
+            return contact_id
+
+        except Exception as e:
+            print(f"✗ Error creating CRM contact: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
 
     def _is_hebrew(self, text):
         """
@@ -356,7 +433,8 @@ class Intros:
 
             if not all_matches:
                 print(f"No contacts found in CRM for any English spelling of '{name}'")
-                return None
+                # Offer to create new contact
+                return self._create_crm_contact(name)
 
             # If only one match, use it automatically
             if len(all_matches) == 1:
@@ -379,14 +457,16 @@ class Intros:
 
             if not all_matches:
                 print(f"No contacts found in CRM for '{name}'")
-                return None
+                # Offer to create new contact
+                return self._create_crm_contact(name)
 
             # Filter for standalone word matches
             standalone_matches = self._filter_standalone_matches(all_matches, name)
 
             if not standalone_matches:
                 print(f"No standalone word matches found for '{name}' (found {len(all_matches)} partial matches)")
-                return None
+                # Offer to create new contact
+                return self._create_crm_contact(name)
 
             # If only one match, use it automatically
             if len(standalone_matches) == 1:
@@ -400,6 +480,33 @@ class Intros:
                 return selected_contact['id']
             else:
                 return None
+
+    def _connection_exists(self, connection_name):
+        """
+        Check if a connection already exists in the Intros database.
+        Returns True if it exists, False otherwise.
+        """
+        try:
+            # Query the Intros database for this connection name
+            response = self.notion.data_sources.query(
+                self.intros_data_source_id,
+                filter={
+                    "property": "Connection",
+                    "title": {
+                        "equals": connection_name
+                    }
+                }
+            )
+
+            results = response.get("results", [])
+            return len(results) > 0
+
+        except Exception as e:
+            print(f"Error checking for duplicate connection '{connection_name}': {e}")
+            import traceback
+            traceback.print_exc()
+            # If there's an error, assume it doesn't exist to avoid blocking
+            return False
 
     def _resolve_side_to_contacts(self, side):
         """
@@ -510,6 +617,11 @@ class Intros:
 
             connection_name = f"{first_side_display} & {second_side_display}"
             print(f"\nConnection: {connection_name}")
+
+            # Check if this connection already exists
+            if self._connection_exists(connection_name):
+                print(f"⊗ Connection already exists in database. Skipping...")
+                continue
 
             # Resolve both sides to CRM contact IDs
             print(f"\n--- Resolving First Side: {first_side_display} ---")
