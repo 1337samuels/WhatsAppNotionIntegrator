@@ -39,7 +39,7 @@ def load_config():
                     config[key] = value
 
         # Validate required keys
-        required_keys = ['NOTION_SECRET', 'CRM_DB_ID', 'TEMP_DB_ID']
+        required_keys = ['NOTION_SECRET', 'CRM_DB_ID', 'TEMP_DB_ID', 'TRANSLATIONS_DB_ID']
         missing_keys = [key for key in required_keys if key not in config]
 
         if missing_keys:
@@ -60,11 +60,13 @@ config = load_config()
 NOTION_SECRET = config['NOTION_SECRET']
 CRM_DB_ID = config['CRM_DB_ID']
 TEMP_DB_ID = config['TEMP_DB_ID']
+TRANSLATIONS_DB_ID = config['TRANSLATIONS_DB_ID']
 
 print(f"✓ Loaded configuration from notion_secret.txt")
 print(f"  - NOTION_SECRET: {NOTION_SECRET[:20]}..." if len(NOTION_SECRET) > 20 else f"  - NOTION_SECRET: {NOTION_SECRET}")
 print(f"  - CRM_DB_ID: {CRM_DB_ID}")
 print(f"  - TEMP_DB_ID: {TEMP_DB_ID}")
+print(f"  - TRANSLATIONS_DB_ID: {TRANSLATIONS_DB_ID}")
 
 class Intros:
     def __init__(self, csv_path):
@@ -73,6 +75,7 @@ class Intros:
         self.intro_dict = {}
         self.notion = Client(auth=NOTION_SECRET)
         self.crm_cache = {}  # Cache for CRM search results
+        self.translations_cache = {}  # Cache for Hebrew translations
 
         # Get the data_source ID from the CRM database
         # In the new Notion API, we need to query data_sources, not databases
@@ -87,6 +90,19 @@ class Intros:
             print("  1. CRM_DB_ID is set correctly")
             print("  2. Your integration has access to the CRM database")
             print("  3. NOTION_SECRET is valid")
+            raise
+
+        # Get the data_source ID from the Translations database
+        print("Retrieving Translations data source ID...")
+        try:
+            db_info = self.notion.databases.retrieve(database_id=TRANSLATIONS_DB_ID)
+            self.translations_data_source_id = db_info['data_sources'][0]['id']
+            print(f"✓ Translations data source ID: {self.translations_data_source_id}")
+        except Exception as e:
+            print(f"✗ Error retrieving Translations database info: {e}")
+            print("\nMake sure:")
+            print("  1. TRANSLATIONS_DB_ID is set correctly")
+            print("  2. Your integration has access to the Translations database")
             raise
 
     def _search_crm_contacts(self, search_name):
@@ -130,6 +146,125 @@ class Intros:
 
         except Exception as e:
             print(f"Error searching CRM for '{search_name}': {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+    def _is_hebrew(self, text):
+        """
+        Check if text contains Hebrew characters.
+        Hebrew Unicode range: \u0590-\u05FF
+        """
+        return bool(re.search(r'[\u0590-\u05FF]', text))
+
+    def _lookup_hebrew_translation(self, hebrew_name):
+        """
+        Look up Hebrew name in Translations database.
+        Returns list of English spellings, or None if not found.
+        """
+        # Check cache first
+        if hebrew_name in self.translations_cache:
+            return self.translations_cache[hebrew_name]
+
+        try:
+            # Query the Translations database for this Hebrew name
+            response = self.notion.data_sources.query(
+                self.translations_data_source_id,
+                filter={
+                    "property": "Hebrew Name",
+                    "title": {
+                        "equals": hebrew_name
+                    }
+                }
+            )
+
+            results = response.get("results", [])
+            if not results:
+                return None
+
+            # Get the first matching page
+            page = results[0]
+            english_names_prop = page["properties"].get("English Names", {})
+
+            # Extract English names from rich_text property
+            if english_names_prop.get("rich_text"):
+                english_names_text = "".join([text["plain_text"] for text in english_names_prop["rich_text"]])
+                # Split by comma and strip whitespace
+                english_names = [name.strip() for name in english_names_text.split(',') if name.strip()]
+
+                # Cache the result
+                self.translations_cache[hebrew_name] = english_names
+                return english_names
+
+            return None
+
+        except Exception as e:
+            print(f"Error looking up Hebrew translation for '{hebrew_name}': {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def _create_hebrew_translation(self, hebrew_name):
+        """
+        Create a new translation entry for a Hebrew name.
+        Prompts user for English spellings and creates the page in Translations DB.
+        Returns list of English spellings.
+        """
+        print(f"\n{'='*60}")
+        print(f"Hebrew name '{hebrew_name}' not found in Translations database")
+        print(f"{'='*60}")
+        print("\nPlease enter all possible English spellings for this name,")
+        print("separated by commas (e.g., 'Ittai,Itay,Itai'):")
+
+        while True:
+            user_input = input("> ").strip()
+            if user_input:
+                break
+            print("Please enter at least one English spelling.")
+
+        # Parse the input
+        english_names = [name.strip() for name in user_input.split(',') if name.strip()]
+
+        if not english_names:
+            print("No valid English names provided. Skipping translation creation.")
+            return []
+
+        print(f"\nCreating translation: {hebrew_name} → {', '.join(english_names)}")
+
+        try:
+            # Create the page in Translations database
+            self.notion.pages.create(
+                parent={"database_id": TRANSLATIONS_DB_ID},
+                properties={
+                    "Hebrew Name": {
+                        "title": [
+                            {
+                                "text": {
+                                    "content": hebrew_name
+                                }
+                            }
+                        ]
+                    },
+                    "English Names": {
+                        "rich_text": [
+                            {
+                                "text": {
+                                    "content": ", ".join(english_names)
+                                }
+                            }
+                        ]
+                    }
+                }
+            )
+
+            print(f"✓ Created translation entry")
+
+            # Cache it
+            self.translations_cache[hebrew_name] = english_names
+            return english_names
+
+        except Exception as e:
+            print(f"✗ Error creating translation entry: {e}")
             import traceback
             traceback.print_exc()
             return []
@@ -184,35 +319,87 @@ class Intros:
     def _resolve_name_to_contact(self, name):
         """
         Resolve a single name to a CRM contact.
-        Searches CRM, filters for standalone matches, and prompts user if multiple matches found.
+        Handles both English and Hebrew names.
+        For Hebrew names, looks up translations and searches CRM with English spellings.
         Returns the contact ID or None if no match or user skips.
         """
-        # Search CRM for contacts containing this name
-        all_matches = self._search_crm_contacts(name)
+        # Check if name is in Hebrew
+        if self._is_hebrew(name):
+            print(f"\nDetected Hebrew name: {name}")
 
-        if not all_matches:
-            print(f"No contacts found in CRM for '{name}'")
-            return None
+            # Look up translation
+            english_spellings = self._lookup_hebrew_translation(name)
 
-        # Filter for standalone word matches
-        standalone_matches = self._filter_standalone_matches(all_matches, name)
+            # If not found, create new translation
+            if english_spellings is None:
+                english_spellings = self._create_hebrew_translation(name)
 
-        if not standalone_matches:
-            print(f"No standalone word matches found for '{name}' (found {len(all_matches)} partial matches)")
-            return None
+            if not english_spellings:
+                print(f"No English spellings provided for '{name}'. Cannot search CRM.")
+                return None
 
-        # If only one match, use it automatically
-        if len(standalone_matches) == 1:
-            contact = standalone_matches[0]
-            print(f"Only one contact found for '{name}': {contact['name']}")
-            return contact['id']
+            print(f"English spellings for '{name}': {', '.join(english_spellings)}")
 
-        # Multiple matches - prompt user to select
-        selected_contact = self._prompt_user_selection(name, standalone_matches)
-        if selected_contact:
-            return selected_contact['id']
+            # Search CRM for all English spellings and collect all matches
+            all_matches = []
+            for english_name in english_spellings:
+                print(f"  Searching CRM for '{english_name}'...")
+                matches = self._search_crm_contacts(english_name)
+                if matches:
+                    # Filter for standalone word matches
+                    standalone = self._filter_standalone_matches(matches, english_name)
+                    if standalone:
+                        # Add to all_matches, avoiding duplicates by ID
+                        for contact in standalone:
+                            if not any(c['id'] == contact['id'] for c in all_matches):
+                                all_matches.append(contact)
+
+            if not all_matches:
+                print(f"No contacts found in CRM for any English spelling of '{name}'")
+                return None
+
+            # If only one match, use it automatically
+            if len(all_matches) == 1:
+                contact = all_matches[0]
+                print(f"Only one contact found for '{name}': {contact['name']}")
+                return contact['id']
+
+            # Multiple matches - prompt user to select
+            print(f"\nFound {len(all_matches)} contact(s) for Hebrew name '{name}':")
+            selected_contact = self._prompt_user_selection(name, all_matches)
+            if selected_contact:
+                return selected_contact['id']
+            else:
+                return None
+
         else:
-            return None
+            # English name - use original logic
+            # Search CRM for contacts containing this name
+            all_matches = self._search_crm_contacts(name)
+
+            if not all_matches:
+                print(f"No contacts found in CRM for '{name}'")
+                return None
+
+            # Filter for standalone word matches
+            standalone_matches = self._filter_standalone_matches(all_matches, name)
+
+            if not standalone_matches:
+                print(f"No standalone word matches found for '{name}' (found {len(all_matches)} partial matches)")
+                return None
+
+            # If only one match, use it automatically
+            if len(standalone_matches) == 1:
+                contact = standalone_matches[0]
+                print(f"Only one contact found for '{name}': {contact['name']}")
+                return contact['id']
+
+            # Multiple matches - prompt user to select
+            selected_contact = self._prompt_user_selection(name, standalone_matches)
+            if selected_contact:
+                return selected_contact['id']
+            else:
+                return None
 
     def _resolve_side_to_contacts(self, side):
         """

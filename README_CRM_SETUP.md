@@ -48,16 +48,24 @@ Example:
 ### 5. Set Up Your CRM Database
 
 Make sure your CRM database has:
-- A **title property** named "Contact" containing the full name of each contact
+- A **title property** named "Contact" containing the full name of each contact (in English)
 
-### 6. Set Up Your Intros Database
+### 6. Set Up Your Name Translations Database
+
+This database handles Hebrew to English name translations:
+- **Hebrew Name** (Title property) - Contains Hebrew names (e.g., "איתי")
+- **English Names** (Rich text property) - Contains comma-separated English spellings (e.g., "Ittai,Itay,Itai")
+
+The script will automatically create entries when it encounters new Hebrew names.
+
+### 7. Set Up Your Intros Database
 
 Make sure your Intros database has these 3 properties:
 - **Connection** (Title property) - Contains the connection name (e.g., "John & Beth")
 - **First Side Contact** (Relation property → linked to your CRM database)
 - **Second Side Contact** (Relation property → linked to your CRM database)
 
-### 7. Configure notion_secret.txt
+### 8. Configure notion_secret.txt
 
 Create a file named `notion_secret.txt` in the same directory as `chat_parser.py`:
 
@@ -65,6 +73,7 @@ Create a file named `notion_secret.txt` in the same directory as `chat_parser.py
 NOTION_SECRET = "secret_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 CRM_DB_ID = "your_crm_database_id_here"
 TEMP_DB_ID = "your_intros_database_id_here"
+TRANSLATIONS_DB_ID = "your_translations_database_id_here"
 ```
 
 You can copy the example file:
@@ -74,6 +83,40 @@ cp notion_secret.txt.example notion_secret.txt
 ```
 
 **Note:** This file is gitignored, so your secrets won't be committed to the repository.
+
+## Features
+
+### Hebrew Name Translation
+
+The script automatically handles Hebrew names in connections:
+
+1. **Detects Hebrew characters** in names
+2. **Looks up translation** in the Name Translations database
+3. **If not found**, prompts you to enter English spellings (e.g., "Ittai,Itay,Itai")
+4. **Creates translation entry** in the database for future use
+5. **Searches CRM** for all English spellings
+6. **Presents all matches** for you to select the correct contact
+
+Example:
+```
+Connection: איתי & Beth
+
+Detected Hebrew name: איתי
+Hebrew name 'איתי' not found in Translations database
+Please enter all possible English spellings: Ittai,Itay,Itai
+
+English spellings for 'איתי': Ittai, Itay, Itai
+  Searching CRM for 'Ittai'...
+  Searching CRM for 'Itay'...
+  Searching CRM for 'Itai'...
+
+Found 2 contacts:
+  1. Itai Cohen
+  2. Ittai Goldberg
+  0. Skip
+
+Select which contact to use (0-2): 1
+```
 
 ## How It Works
 
