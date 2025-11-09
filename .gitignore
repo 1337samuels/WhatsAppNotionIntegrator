@@ -39,3 +39,4 @@ Thumbs.db
 # Project specific
 whatsapp_chats.csv
 *.csv
+notion_secret.txt

@@ -57,21 +57,23 @@ Make sure your Intros database has these 3 properties:
 - **First Side Contact** (Relation property → linked to your CRM database)
 - **Second Side Contact** (Relation property → linked to your CRM database)
 
-### 7. Configure chat_parser.py
+### 7. Configure notion_secret.txt
 
-Edit the top of `chat_parser.py`:
+Create a file named `notion_secret.txt` in the same directory as `chat_parser.py`:
 
-```python
-NOTION_SECRET = "secret_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"  # Your integration token
-TEMP_DB_ID = "29a37812620f80f2a963daf81ebe558f"  # Your Intros database ID
-CRM_DB_ID = "your_crm_database_id_here"  # Your CRM database ID
+```
+NOTION_SECRET = "secret_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+CRM_DB_ID = "your_crm_database_id_here"
+TEMP_DB_ID = "your_intros_database_id_here"
 ```
 
-Also update the CSV file path in the `main()` function:
-
-```python
-csv_path = "whatsapp_chats.csv"  # Path to your CSV file
+You can copy the example file:
+```bash
+cp notion_secret.txt.example notion_secret.txt
+# Then edit notion_secret.txt with your actual credentials
 ```
+
+**Note:** This file is gitignored, so your secrets won't be committed to the repository.
 
 ## How It Works
 

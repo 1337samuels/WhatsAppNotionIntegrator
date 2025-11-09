@@ -8,14 +8,63 @@ except ImportError:
 
 import re
 import csv
+import os
 
-# TODO: Fill in your Notion API key
-# Get this from: https://www.notion.so/my-integrations
-NOTION_SECRET = "Samuels you need to fill this manually!"  # TODO: Fix
+# Read configuration from notion_secret.txt
+def load_config():
+    """Load Notion API credentials from notion_secret.txt"""
+    config_file = "notion_secret.txt"
 
-# Database IDs - get these from the database URLs
-TEMP_DB_ID = "29a37812620f80f2a963daf81ebe558f"  # Intros database
-CRM_DB_ID = "Samuels you need to fill this manually!"  # TODO: Fix - CRM database
+    if not os.path.exists(config_file):
+        print(f"ERROR: Configuration file '{config_file}' not found!")
+        print(f"\nPlease create a file named '{config_file}' with the following format:")
+        print("NOTION_SECRET = \"your_notion_secret_here\"")
+        print("CRM_DB_ID = \"your_crm_database_id_here\"")
+        print("TEMP_DB_ID = \"your_intros_database_id_here\"")
+        exit(1)
+
+    config = {}
+    try:
+        with open(config_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+
+                # Parse line in format: KEY = "value"
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    config[key] = value
+
+        # Validate required keys
+        required_keys = ['NOTION_SECRET', 'CRM_DB_ID', 'TEMP_DB_ID']
+        missing_keys = [key for key in required_keys if key not in config]
+
+        if missing_keys:
+            print(f"ERROR: Missing required configuration keys: {', '.join(missing_keys)}")
+            print(f"\nPlease ensure '{config_file}' contains all required keys:")
+            for key in required_keys:
+                print(f"  {key} = \"your_value_here\"")
+            exit(1)
+
+        return config
+
+    except Exception as e:
+        print(f"ERROR: Failed to parse configuration file '{config_file}': {e}")
+        exit(1)
+
+# Load configuration
+config = load_config()
+NOTION_SECRET = config['NOTION_SECRET']
+CRM_DB_ID = config['CRM_DB_ID']
+TEMP_DB_ID = config['TEMP_DB_ID']
+
+print(f"✓ Loaded configuration from notion_secret.txt")
+print(f"  - NOTION_SECRET: {NOTION_SECRET[:20]}..." if len(NOTION_SECRET) > 20 else f"  - NOTION_SECRET: {NOTION_SECRET}")
+print(f"  - CRM_DB_ID: {CRM_DB_ID}")
+print(f"  - TEMP_DB_ID: {TEMP_DB_ID}")
 
 class Intros:
     def __init__(self, csv_path):
