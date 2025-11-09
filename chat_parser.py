@@ -167,6 +167,7 @@ class Intros:
         """
         Create a new contact in the CRM database.
         Prompts user for the full name and creates the contact.
+        If user declines, offers to create a spelling variant mapping.
         Returns the contact ID or None if creation fails.
         """
         print(f"\n{'='*60}")
@@ -181,6 +182,18 @@ class Intros:
 
         if add_contact in ['n', 'no']:
             print("Skipping CRM contact creation")
+
+            # Offer to add a spelling variant mapping
+            print("\nThe contact might exist with a different spelling.")
+            while True:
+                add_variant = input("Do you want to add a spelling variant mapping? (y/n): ").strip().lower()
+                if add_variant in ['y', 'yes', 'n', 'no']:
+                    break
+                print("Please enter 'y' or 'n'")
+
+            if add_variant in ['y', 'yes']:
+                return self._create_spelling_variant_and_retry(name)
+
             return None
 
         # Prompt for full name
@@ -223,6 +236,107 @@ class Intros:
 
         except Exception as e:
             print(f"✗ Error creating CRM contact: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def _create_spelling_variant_and_retry(self, misspelled_name):
+        """
+        Create a spelling variant mapping in Translations DB and retry CRM search.
+        Used for English names with different spellings (e.g., "Nahman" → "Nachman").
+        Returns contact ID if found after mapping, None otherwise.
+        """
+        print(f"\n{'='*60}")
+        print(f"Creating spelling variant for '{misspelled_name}'")
+        print(f"{'='*60}")
+        print("\nEnter the correct spelling(s) as they appear in the CRM,")
+        print("separated by commas (e.g., 'Nachman,Nakhman'):")
+
+        while True:
+            user_input = input("> ").strip()
+            if user_input:
+                break
+            print("Please enter at least one correct spelling.")
+
+        # Parse the input
+        correct_spellings = [name.strip() for name in user_input.split(',') if name.strip()]
+
+        if not correct_spellings:
+            print("No valid spellings provided. Skipping variant creation.")
+            return None
+
+        print(f"\nCreating spelling variant: {misspelled_name} → {', '.join(correct_spellings)}")
+
+        try:
+            # Create the page in Translations database
+            # Using "Hebrew Name" field for the misspelling (even though it's English)
+            self.notion.pages.create(
+                parent={"database_id": TRANSLATIONS_DB_ID},
+                properties={
+                    "Hebrew Name": {
+                        "title": [
+                            {
+                                "text": {
+                                    "content": misspelled_name
+                                }
+                            }
+                        ]
+                    },
+                    "English Names": {
+                        "rich_text": [
+                            {
+                                "text": {
+                                    "content": ", ".join(correct_spellings)
+                                }
+                            }
+                        ]
+                    }
+                }
+            )
+
+            print(f"✓ Created spelling variant entry")
+
+            # Cache it
+            self.translations_cache[misspelled_name] = correct_spellings
+
+            # Now search CRM with the correct spellings
+            print(f"\nSearching CRM with correct spelling(s)...")
+            all_matches = []
+            for correct_name in correct_spellings:
+                print(f"  Searching CRM for '{correct_name}'...")
+                matches = self._search_crm_contacts(correct_name)
+                if matches:
+                    # Filter for standalone word matches
+                    standalone = self._filter_standalone_matches(matches, correct_name)
+                    if standalone:
+                        # Add to all_matches, avoiding duplicates by ID
+                        for contact in standalone:
+                            if not any(c['id'] == contact['id'] for c in all_matches):
+                                all_matches.append(contact)
+
+            if not all_matches:
+                print(f"No contacts found in CRM for any correct spelling")
+                return None
+
+            # If only one match, use it automatically
+            if len(all_matches) == 1:
+                contact = all_matches[0]
+                print(f"Only one contact found: {contact['name']}")
+                return contact['id']
+
+            # Multiple matches - prompt user to select
+            print(f"\nFound {len(all_matches)} contact(s):")
+            selected_contact = self._prompt_user_selection(misspelled_name, all_matches)
+            if selected_contact == 'CREATE_NEW':
+                # User still wants to create a new contact
+                return self._create_crm_contact(misspelled_name)
+            elif selected_contact:
+                return selected_contact['id']
+            else:
+                return None
+
+        except Exception as e:
+            print(f"✗ Error creating spelling variant entry: {e}")
             import traceback
             traceback.print_exc()
             return None
@@ -464,7 +578,51 @@ class Intros:
                 return None
 
         else:
-            # English name - use original logic
+            # English name - check if there's a spelling variant in Translations DB
+            # This handles cases like "Nahman" → "Nachman"
+            spelling_variants = self._lookup_hebrew_translation(name)
+
+            if spelling_variants:
+                # Found a spelling variant mapping
+                print(f"\nFound spelling variant(s) for '{name}': {', '.join(spelling_variants)}")
+
+                # Search CRM for all spelling variants
+                all_matches = []
+                for variant_name in spelling_variants:
+                    print(f"  Searching CRM for '{variant_name}'...")
+                    matches = self._search_crm_contacts(variant_name)
+                    if matches:
+                        # Filter for standalone word matches
+                        standalone = self._filter_standalone_matches(matches, variant_name)
+                        if standalone:
+                            # Add to all_matches, avoiding duplicates by ID
+                            for contact in standalone:
+                                if not any(c['id'] == contact['id'] for c in all_matches):
+                                    all_matches.append(contact)
+
+                if not all_matches:
+                    print(f"No contacts found in CRM for any spelling variant of '{name}'")
+                    # Offer to create new contact
+                    return self._create_crm_contact(name)
+
+                # If only one match, use it automatically
+                if len(all_matches) == 1:
+                    contact = all_matches[0]
+                    print(f"Only one contact found for '{name}': {contact['name']}")
+                    return contact['id']
+
+                # Multiple matches - prompt user to select
+                print(f"\nFound {len(all_matches)} contact(s) for '{name}':")
+                selected_contact = self._prompt_user_selection(name, all_matches)
+                if selected_contact == 'CREATE_NEW':
+                    # User wants to create a new contact
+                    return self._create_crm_contact(name)
+                elif selected_contact:
+                    return selected_contact['id']
+                else:
+                    return None
+
+            # No spelling variants - search CRM directly
             # Search CRM for contacts containing this name
             all_matches = self._search_crm_contacts(name)
 
